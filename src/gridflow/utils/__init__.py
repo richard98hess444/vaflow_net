@@ -1,0 +1,35 @@
+"""Utilities module for visualization and grid operations."""
+
+from .plotting import (
+    print_flow,
+    print_grid,
+    setup_axes,
+    overlay_obstacles_and_source,
+    plot_grid,
+    plot_flow,
+    plot_scalar_map,
+    plot_strength_map,
+    plot_viscosity_map,
+    plot_filtered_map,
+    plot_arrival_time_map,
+    plot_thresholded_grid,
+    plot_flow_on_thresholded_grid,
+    plot_path_on_thresholded_grid,
+)
+
+__all__ = [
+    "print_grid",
+    "print_flow",
+    "setup_axes",
+    "overlay_obstacles_and_source",
+    "plot_grid",
+    "plot_flow",
+    "plot_scalar_map",
+    "plot_strength_map",
+    "plot_viscosity_map",
+    "plot_filtered_map",
+    "plot_arrival_time_map",
+    "plot_thresholded_grid",
+    "plot_flow_on_thresholded_grid",
+    "plot_path_on_thresholded_grid",
+]
