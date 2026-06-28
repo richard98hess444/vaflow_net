@@ -1,13 +1,7 @@
-"""Train a neural vector-field representation of water flow.
+"""Train a dense neural vector-field representation of water flow.
 
-The model is a coordinate-based neural field with two components:
-
-1. GridEncoder (CNN): encodes the obstacle grid into a latent vector.
-2. FieldMLP: takes [latent, goal, query] and predicts the flow vector at the
-   query cell.
-
-Target: the (reversed) flow vector field produced by the WaterFlow algorithm,
-i.e. for a query cell the model must regress the 2D flow vector at that cell.
+The model predicts the full 2D flow field from the obstacle grid and goal,
+which preserves spatial obstacle geometry throughout the prediction path.
 """
 
 from pathlib import Path
@@ -38,7 +32,9 @@ class Trainer:
         print(f"Using device: {self.device}")
 
         self.model = VectorFieldNet(
-            latent_dim=config.latent_dim, hidden_dim=config.hidden_dim
+            latent_dim=config.latent_dim,
+            hidden_dim=config.hidden_dim,
+            base_channels=config.model_channels,
         ).to(self.device)
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=config.lr)
         self.criterion = nn.MSELoss()
@@ -46,34 +42,6 @@ class Trainer:
         self.train_loss_history = []
         self.val_loss_history = []
         self.best_val_loss = float("inf")
-
-    # ------------------------------------------------------------------------
-    # Query sampling
-    # ------------------------------------------------------------------------
-    @staticmethod
-    def sample_queries(target_field, num_queries, grid_size):
-        """Sample random query cells and gather their target vectors.
-
-        Args:
-            target_field: (B, n, n, 2) target vector field
-            num_queries: number of query points per sample
-            grid_size: n
-
-        Returns:
-            query_coords: (B, Q, 2) normalized query coordinates
-            target_vecs: (B, Q, 2) target vectors at those coordinates
-        """
-        batch_size = target_field.shape[0]
-        n = grid_size
-
-        rows = torch.randint(0, n, (batch_size, num_queries))
-        cols = torch.randint(0, n, (batch_size, num_queries))
-
-        batch_idx = torch.arange(batch_size).unsqueeze(1).expand(-1, num_queries)
-        target_vecs = target_field[batch_idx, rows, cols]  # (B, Q, 2)
-
-        query_coords = torch.stack([rows, cols], dim=-1).float() / (n - 1)  # (B, Q, 2)
-        return query_coords, target_vecs
 
     @staticmethod
     def predict_full_field(model, grid_t, goal_t, grid_size, device, step=1.0):
@@ -97,19 +65,21 @@ class Trainer:
         n = grid_size
         model.eval()
 
-        positions = np.arange(0, n - 1 + 1e-9, step)
-        res = len(positions)
-        coords = [[r, c] for r in positions for c in positions]
-        query = torch.tensor(coords, dtype=torch.float32) / (
-            n - 1
-        )  # (R*R, 2), normalize because model expects [0,1] coordinates
-        query = query.unsqueeze(0).to(device)  # (1, R*R, 2)
-
         grid_b = grid_t.unsqueeze(0).to(device)  # (1, 1, n, n)
         goal_b = goal_t.unsqueeze(0).to(device)  # (1, 2)
 
         with torch.no_grad():
-            pred = model(grid_b, goal_b, query)  # (1, R*R, 2)
+            if step == 1.0:
+                pred = model(grid_b, goal_b)
+                positions = np.arange(n)
+                return pred.squeeze(0).cpu().numpy(), positions
+
+            positions = np.arange(0, n - 1 + 1e-9, step)
+            res = len(positions)
+            coords = [[r, c] for r in positions for c in positions]
+            query = torch.tensor(coords, dtype=torch.float32) / (n - 1)
+            query = query.unsqueeze(0).to(device)
+            pred = model(grid_b, goal_b, query)
 
         return pred.reshape(res, res, 2).cpu().numpy(), positions
 
@@ -149,7 +119,6 @@ class Trainer:
     # ------------------------------------------------------------------------
     def evaluate(self, loader):
         """Compute average loss over a data loader (no gradient updates)."""
-        config = self.config
         self.model.eval()
         total_loss = 0.0
 
@@ -159,14 +128,8 @@ class Trainer:
                 goal_t = goal_t.to(self.device)
                 target_t = target_t.to(self.device)
 
-                query_coords, target_vecs = self.sample_queries(
-                    target_t, config.num_queries, config.grid_size
-                )
-                query_coords = query_coords.to(self.device)
-                target_vecs = target_vecs.to(self.device)
-
-                pred = self.model(grid_t, goal_t, query_coords)
-                loss = self.criterion(pred, target_vecs)
+                pred = self.model(grid_t, goal_t)
+                loss = self.criterion(pred, target_t)
                 total_loss += loss.item()
 
         return total_loss / max(len(loader), 1)
@@ -193,14 +156,8 @@ class Trainer:
                 goal_t = goal_t.to(self.device)
                 target_t = target_t.to(self.device)
 
-                query_coords, target_vecs = self.sample_queries(
-                    target_t, config.num_queries, config.grid_size
-                )
-                query_coords = query_coords.to(self.device)
-                target_vecs = target_vecs.to(self.device)
-
-                pred = self.model(grid_t, goal_t, query_coords)  # (B, Q, 2)
-                loss = self.criterion(pred, target_vecs)
+                pred = self.model(grid_t, goal_t)  # (B, n, n, 2)
+                loss = self.criterion(pred, target_t)
 
                 self.optimizer.zero_grad()
                 loss.backward()
@@ -250,8 +207,10 @@ class Trainer:
             {
                 "model_state_dict": self.model.state_dict(),
                 "config": {
+                    "architecture": "dense_cnn",
                     "latent_dim": config.latent_dim,
                     "hidden_dim": config.hidden_dim,
+                    "model_channels": config.model_channels,
                     "grid_size": config.grid_size,
                 },
                 "best_val_loss": self.best_val_loss,

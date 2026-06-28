@@ -15,7 +15,7 @@ import glob
 import torch
 
 from trainer import Trainer
-from modules import VectorFieldNet
+from modules import QueryVectorFieldNet, VectorFieldNet
 from dataloader import FlowFieldDataset
 from visualizer import plot_prediction_vs_target
 
@@ -32,14 +32,22 @@ def _latest_checkpoint():
 
 
 def load_model(ckpt_path, device):
-    """Rebuild a VectorFieldNet from a checkpoint and load its weights."""
+    """Rebuild a saved model from a checkpoint and load its weights."""
     ckpt = torch.load(ckpt_path, map_location=device)
     config = ckpt["config"]
+    architecture = config.get("architecture", "query_mlp")
 
-    model = VectorFieldNet(
-        latent_dim=config["latent_dim"],
-        hidden_dim=config["hidden_dim"],
-    ).to(device)
+    if architecture == "dense_cnn":
+        model = VectorFieldNet(
+            latent_dim=config.get("latent_dim", 64),
+            hidden_dim=config.get("hidden_dim", 128),
+            base_channels=config.get("model_channels", 32),
+        ).to(device)
+    else:
+        model = QueryVectorFieldNet(
+            latent_dim=config["latent_dim"],
+            hidden_dim=config["hidden_dim"],
+        ).to(device)
     model.load_state_dict(ckpt["model_state_dict"])
     model.eval()
 
@@ -73,7 +81,7 @@ def main():
 
         # step=1.0 -> integer cells; use 0.5 (or smaller) for sub-cell resolution.
         pred_field, pred_positions = Trainer.predict_full_field(
-            model, grid_t, goal_t, grid_size, device, step=0.25
+            model, grid_t, goal_t, grid_size, device, step=0.5
         )
 
         plot_prediction_vs_target(
