@@ -12,4 +12,5 @@ class Config:
         self.lr = 1e-3
         self.latent_dim = 64
         self.hidden_dim = 128
+        self.model_channels = 32
         self.seed = 0

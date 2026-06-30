@@ -1,4 +1,4 @@
-# Vecancy Flow Navigation
+# Vacancy Flow Navigation
 
 ## Quick Start
 
@@ -52,7 +52,17 @@ Run from the repo root:
 ```bash
 python training/run_trainer.py     # train + visualize, saves a .pt model
 python training/run_visualizer.py    # load latest .pt and visualize
+python training/run_visualizer.py models/your_checkpoint.pt    # visualize a pre-trained model
 ```
+
+### Known caveat: diagonal corner behavior
+
+If the predicted flow appears to pass diagonally around a blocked side cell,
+that may come from the target-generation rules, not only from the neural model.
+In the current `WaterFlow` implementation, diagonal motion is blocked only when
+both adjacent orthogonal cells are blocked. That means the target field can
+still permit some diagonal corner-sliding cases, and the model may learn to
+imitate them.
 
 ## Important Notes
 
