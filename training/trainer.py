@@ -9,6 +9,7 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.utils.data import DataLoader, random_split
 import matplotlib.pyplot as plt
 
@@ -69,17 +70,30 @@ class Trainer:
         goal_b = goal_t.unsqueeze(0).to(device)  # (1, 2)
 
         with torch.no_grad():
+            dense = model(grid_b, goal_b)  # (1, n, n, 2)
+
             if step == 1.0:
-                pred = model(grid_b, goal_b)
                 positions = np.arange(n)
-                return pred.squeeze(0).cpu().numpy(), positions
+                return dense.squeeze(0).cpu().numpy(), positions
 
             positions = np.arange(0, n - 1 + 1e-9, step)
             res = len(positions)
             coords = [[r, c] for r in positions for c in positions]
             query = torch.tensor(coords, dtype=torch.float32) / (n - 1)
-            query = query.unsqueeze(0).to(device)
-            pred = model(grid_b, goal_b, query)
+            query = query.to(device)
+
+            # Bilinearly resample the dense field at the sub-cell query points.
+            dense_chw = dense.permute(0, 3, 1, 2)  # (1, 2, n, n)
+            sample_grid = query[..., [1, 0]] * 2.0 - 1.0  # (R*R, 2) as (col, row)
+            sample_grid = sample_grid.view(1, res * res, 1, 2)
+            sampled = F.grid_sample(
+                dense_chw,
+                sample_grid,
+                mode="bilinear",
+                padding_mode="border",
+                align_corners=True,
+            )  # (1, 2, R*R, 1)
+            pred = sampled.squeeze(-1).squeeze(0).transpose(0, 1)  # (R*R, 2)
 
         return pred.reshape(res, res, 2).cpu().numpy(), positions
 
