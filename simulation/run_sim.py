@@ -38,6 +38,8 @@ KEYS = {
 
 
 def _print_status(sim: GridFlowSimulator):
+    if sim.robot_pos is None or sim.goal is None:
+        raise RuntimeError("Robot position and goal must be set before status print")
     r, c = sim.robot_pos
     gr, gc = sim.goal
     local_goal = sim.goal_in_local_frame()

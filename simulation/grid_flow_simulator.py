@@ -14,6 +14,7 @@ positions are constrained to "within 118x118".
 """
 
 import random
+from typing import cast
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -177,6 +178,8 @@ class GridFlowSimulator:
     # ------------------------------------------------------------------------
     def _update_local_map(self):
         """Extract the `local_size`x`local_size` window centered on the robot."""
+        if self.robot_pos is None:
+            raise RuntimeError("Robot position is not set")
         r, c = self.robot_pos
         h = self.half
         self.local_map = self.world[r - h : r + h + 1, c - h : c + h + 1].copy()
@@ -195,6 +198,7 @@ class GridFlowSimulator:
         """
         if self.robot_pos is None or self.goal is None:
             return None
+        assert self.robot_pos is not None and self.goal is not None
         r, c = self.robot_pos
         gr, gc = self.goal
         lr, lc = gr - (r - self.half), gc - (c - self.half)
@@ -213,6 +217,7 @@ class GridFlowSimulator:
         """
         if self.robot_pos is None or self.goal is None:
             return None
+        assert self.robot_pos is not None and self.goal is not None
 
         inside = self.goal_in_local_frame()
         if inside is not None:
@@ -279,7 +284,7 @@ class GridFlowSimulator:
         )
         if training_dir not in sys.path:
             sys.path.insert(0, training_dir)
-        from modules import VectorFieldNet
+        from modules import VectorFieldNet  # pyright: ignore[reportMissingImports]
 
         self._torch = torch
         self.device = device or torch.device(
@@ -317,12 +322,20 @@ class GridFlowSimulator:
         vectors and positions is (R,) coordinates in cell units, or
         (None, None) if no model/goal/local map is available.
         """
-        if self.model is None or self.local_map is None or self.goal is None:
+        if (
+            self.model is None
+            or self.local_map is None
+            or self.goal is None
+            or self._torch is None
+            or self.device is None
+        ):
             return None, None
 
         torch = self._torch
         n = self.local_size
         goal_cell = self.goal_edge_cell()
+        if goal_cell is None:
+            return None, None
 
         grid_t = torch.tensor(self.local_map, dtype=torch.float32)  # (n, n)
         goal_t = torch.tensor(goal_cell, dtype=torch.float32) / (n - 1)  # (2,)
