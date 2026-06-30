@@ -17,8 +17,9 @@ import random
 
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
 
-from gridflow.algorithms import BreadthFirstSearch
+from gridflow.algorithms import BreadthFirstSearch, WaterFlow
 from gridflow.utils import setup_axes, overlay_obstacles_and_source
 
 # 8-neighbor movement deltas, keyed by an arrow / name for convenient teleop.
@@ -58,6 +59,8 @@ class GridFlowSimulator:
         self.max_pos = world_size - self.half - 1
 
         self.bfs = BreadthFirstSearch()
+        self.wf = WaterFlow()
+        self.target_threshold = 0.05
         self.world = self._generate_world(world_size, obstacle_prob, seed)
 
         self.robot_pos = None  # (row, col)
@@ -67,6 +70,8 @@ class GridFlowSimulator:
         # Matplotlib handles for the live local-map view (created lazily).
         self._fig = None
         self._ax = None
+        self._axes = None
+        self._render_mode = None
 
         # Pre-trained flow model (loaded on demand via load_model()).
         self.model = None
@@ -356,10 +361,86 @@ class GridFlowSimulator:
         field = pred.reshape(res, res, 2).cpu().numpy()
         return field, positions
 
+    def compute_local_target_flow(self, threshold=None):
+        """Compute the local WaterFlow target vectors for the current local map.
+
+        The source is `goal_edge_cell()` so target and prediction are aligned
+        even when the true world goal is currently outside the local window.
+        """
+        if self.local_map is None or self.goal is None:
+            return None, None
+
+        n = self.local_size
+        goal_cell = self.goal_edge_cell()
+        if goal_cell is None:
+            return None, None
+        grid = self.local_map.tolist()
+        threshold = self.target_threshold if threshold is None else threshold
+
+        arrival_time_map = self.wf.compute_arrival_time_map(grid, source=goal_cell)
+        strength_map = self.wf.compute_strength_map(arrival_time_map, source=goal_cell)
+        viscosity_map = self.wf.compute_viscosity_map(grid, source=goal_cell)
+        filtered_map = self.wf.compute_filtered_map(
+            strength_map, viscosity_map, grid, source=goal_cell
+        )
+
+        thresholded_grid = self.wf.apply_strength_threshold(
+            filtered_map, grid, threshold=threshold, source=goal_cell
+        )
+
+        binary_thresholded_grid = [
+            [1 if thresholded_grid[r][c] != 0 else 0 for c in range(n)]
+            for r in range(n)
+        ]
+        binary_thresholded_grid[goal_cell[0]][goal_cell[1]] = 0
+
+        flow_map_t = self.wf.compute_flow_map(binary_thresholded_grid, source=goal_cell)
+        flow_map_r = self.wf.reverse_flow_map(flow_map_t)
+        target_vectors = self.wf.convert_flow_map_to_vectors(flow_map_r, strength_map)
+
+        return target_vectors.astype(np.float32), np.arange(n)
+
+    @staticmethod
+    def _draw_vector_field(ax, vectors, positions):
+        rows, cols = np.meshgrid(positions, positions, indexing="ij")
+        u = vectors[..., 1]  # dcol -> x (rightward)
+        v = vectors[..., 0]  # drow -> y (downward)
+        ax.quiver(
+            cols,
+            rows,
+            u,
+            v,
+            angles="xy",
+            scale_units="xy",
+            scale=1.0,
+            color="blue",
+            zorder=4,
+        )
+
+    def _draw_local_map(self, ax, local, goal_cell):
+        n = self.local_size
+        ax.clear()
+        ax.imshow(
+            np.zeros((n, n)),
+            cmap="gray_r",
+            interpolation="nearest",
+            vmin=0,
+            vmax=1,
+        )
+        setup_axes(ax, n)
+        overlay_obstacles_and_source(ax, local, source=goal_cell)
+
     # ------------------------------------------------------------------------
     # Visualization
     # ------------------------------------------------------------------------
-    def render(self, pause=0.001, show_flow=True, step=1.0):
+    def render(
+        self,
+        pause=0.001,
+        show_flow=True,
+        step=1.0,
+        plot_mode="overlay",
+        target_threshold=None,
+    ):
         """Show the current local scan map, styled like `plot_grid`.
 
         - obstacles are black, the robot (always the center cell) is red,
@@ -370,12 +451,17 @@ class GridFlowSimulator:
         - if a model is loaded (see load_model) and `show_flow` is True, the
           predicted flow field is overlaid as blue arrows. `step` controls the
           arrow density (1.0 = one per cell, 0.5 = 2x denser, etc.).
+                - `plot_mode="overlay"` draws a single map like before.
+                - `plot_mode="compare"` draws side-by-side Ground truth and Prediction
+                    (similar to `plot_prediction_vs_target`).
 
         The same figure is reused, so calling this each step animates the
         robot's view in place.
         """
         if self.local_map is None:
             raise RuntimeError("No local map yet. Call set_start_pos() first.")
+        if plot_mode not in ("overlay", "compare"):
+            raise ValueError("plot_mode must be 'overlay' or 'compare'")
 
         n = self.local_size
         local = self.local_map.tolist()
@@ -385,44 +471,61 @@ class GridFlowSimulator:
         local_goal = self.goal_in_local_frame()
         goal_cell = self.goal_edge_cell()
 
-        if self._fig is None or not plt.fignum_exists(self._fig.number):
-            plt.ion()
-            self._fig, self._ax = plt.subplots(figsize=(6, 6))
-
-        ax = self._ax
-        ax.clear()
-        ax.imshow(
-            np.zeros((n, n)),
-            cmap="gray_r",
-            interpolation="nearest",
-            vmin=0,
-            vmax=1,
+        rebuild_figure = (
+            self._fig is None
+            or not plt.fignum_exists(self._fig.number)
+            or self._render_mode != plot_mode
         )
-        setup_axes(ax, n)
-        # `overlay_obstacles_and_source` draws the center cell red (our robot)
-        # and the `source` cell green (our goal).
-        overlay_obstacles_and_source(ax, local, source=goal_cell)
+        if rebuild_figure:
+            plt.ion()
+            if plot_mode == "compare":
+                self._fig, axes = plt.subplots(1, 2, figsize=(12, 6))
+                self._axes = axes
+                self._ax = None
+            else:
+                self._fig, self._ax = plt.subplots(figsize=(6, 6))
+                self._axes = None
+            self._render_mode = plot_mode
+            assert self._fig is not None
+        fig = cast(Figure, self._fig)
 
-        # Overlay the predicted flow field as blue arrows.
+        # Overlay or compare modes share the same prediction/target computation.
+        pred_field = pred_positions = None
         flow_shown = False
         if show_flow and self.model is not None:
-            field, positions = self.predict_local_flow(step=step)
-            if field is not None:
-                rows, cols = np.meshgrid(positions, positions, indexing="ij")
-                u = field[..., 1]  # dcol -> x (rightward)
-                v = field[..., 0]  # drow -> y (downward)
-                ax.quiver(
-                    cols,
-                    rows,
-                    u,
-                    v,
-                    angles="xy",
-                    scale_units="xy",
-                    scale=1.0,
-                    color="blue",
-                    zorder=4,
-                )
-                flow_shown = True
+            pred_field, pred_positions = self.predict_local_flow(step=step)
+            flow_shown = pred_field is not None
+
+        target_field = target_positions = None
+        if plot_mode == "compare":
+            target_field, target_positions = self.compute_local_target_flow(
+                threshold=target_threshold
+            )
+
+        if plot_mode == "overlay":
+            if self._ax is None:
+                raise RuntimeError("Overlay render axis was not initialized")
+            self._draw_local_map(self._ax, local, goal_cell)
+            if flow_shown:
+                self._draw_vector_field(self._ax, pred_field, pred_positions)
+        else:
+            if self._axes is None:
+                raise RuntimeError("Compare render axes were not initialized")
+            ax_gt, ax_pred = self._axes
+            self._draw_local_map(ax_gt, local, goal_cell)
+            self._draw_local_map(ax_pred, local, goal_cell)
+
+            if target_field is not None:
+                self._draw_vector_field(ax_gt, target_field, target_positions)
+                ax_gt.set_title("Ground truth")
+            else:
+                ax_gt.set_title("Ground truth (unavailable)")
+
+            if flow_shown:
+                self._draw_vector_field(ax_pred, pred_field, pred_positions)
+                ax_pred.set_title("Prediction")
+            else:
+                ax_pred.set_title("Prediction (no model)")
 
         in_view = local_goal is not None
         title = (
@@ -431,8 +534,14 @@ class GridFlowSimulator:
         )
         if flow_shown:
             title += " | predicted flow"
-        ax.set_title(title)
-        self._fig.canvas.draw_idle()
+        if plot_mode == "overlay":
+            assert self._ax is not None
+            self._ax.set_title(title)
+        else:
+            fig.suptitle(title)
+            fig.tight_layout()
+
+        fig.canvas.draw_idle()
         plt.pause(pause)
 
     def keep_open(self):

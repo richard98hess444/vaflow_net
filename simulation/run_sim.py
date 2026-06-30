@@ -18,7 +18,10 @@ from grid_flow_simulator import GridFlowSimulator
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "models", "best.pt")
 
 # Flow arrow density: 1.0 = one arrow per cell, 0.5 = 2x denser, 0.25 = 4x, etc.
-FLOW_STEP = 1.0
+FLOW_STEP = 0.5
+
+# Render mode: "overlay" (single map) or "compare" (ground truth vs prediction).
+FLOW_PLOT_MODE = "compare"
 
 
 # Single-character teleop keys -> direction names.
@@ -43,6 +46,26 @@ def _print_status(sim: GridFlowSimulator):
         print(f"  goal visible in local map at {local_goal}")
     else:
         print(f"  goal projected to local edge at {sim.goal_edge_cell()}")
+
+    # The robot is always at the center of the local map.
+    center = sim.local_size // 2
+
+    pred_field, _ = sim.predict_local_flow(step=1.0)
+    if pred_field is not None:
+        pred_vec = pred_field[center, center]
+        print(
+            "  pred flow (drow, dcol): "
+            f"({pred_vec[0]:.4f}, {pred_vec[1]:.4f})"
+        )
+
+    target_field, _ = sim.compute_local_target_flow()
+    if target_field is not None:
+        target_vec = target_field[center, center]
+        print(
+            "  gt flow (drow, dcol): "
+            f"({target_vec[0]:.4f}, {target_vec[1]:.4f})"
+        )
+
     print(f"  reached goal: {sim.reached_goal()}")
 
 
@@ -58,7 +81,7 @@ def interactive_demo():
     print("Teleop keys: w/a/s/d = up/left/down/right, q/e/z/c = diagonals.")
     print("Type a key (optionally repeated, e.g. 'ww') then Enter. 'x' to quit.\n")
     _print_status(sim)
-    sim.render(step=FLOW_STEP)
+    sim.render(step=FLOW_STEP, plot_mode=FLOW_PLOT_MODE)
 
     while True:
         cmd = input("move> ").strip().lower()
@@ -76,7 +99,10 @@ def interactive_demo():
         for _ in range(steps):
             if sim.move_dir(KEYS[key]):
                 moved_any = True
-            sim.render(step=FLOW_STEP)  # show the local map after each cell of movement
+            sim.render(
+                step=FLOW_STEP,
+                plot_mode=FLOW_PLOT_MODE,
+            )  # show the local map after each cell of movement
         if not moved_any:
             print("  (blocked by obstacle or world edge)")
 
