@@ -1,3 +1,4 @@
-from .vector_field_net import GridEncoder, QueryVectorFieldNet, VectorFieldNet
+from .vector_field_net import VectorFieldNet
+from . grid_encoder import GridEncoder
 
-__all__ = ["GridEncoder", "QueryVectorFieldNet", "VectorFieldNet"]
+__all__ = ["VectorFieldNet", "GridEncoder"]

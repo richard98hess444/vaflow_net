@@ -15,7 +15,7 @@ import glob
 import torch
 
 from trainer import Trainer
-from modules import QueryVectorFieldNet, VectorFieldNet
+from modules import VectorFieldNet
 from dataloader import FlowFieldDataset
 from visualizer import plot_prediction_vs_target
 
@@ -35,19 +35,12 @@ def load_model(ckpt_path, device):
     """Rebuild a saved model from a checkpoint and load its weights."""
     ckpt = torch.load(ckpt_path, map_location=device)
     config = ckpt["config"]
-    architecture = config.get("architecture", "query_mlp")
 
-    if architecture == "dense_cnn":
-        model = VectorFieldNet(
-            latent_dim=config.get("latent_dim", 64),
-            hidden_dim=config.get("hidden_dim", 128),
-            base_channels=config.get("model_channels", 32),
-        ).to(device)
-    else:
-        model = QueryVectorFieldNet(
-            latent_dim=config["latent_dim"],
-            hidden_dim=config["hidden_dim"],
-        ).to(device)
+    model = VectorFieldNet(
+        latent_dim=config.get("latent_dim", 64),
+        hidden_dim=config.get("hidden_dim", 128),
+        base_channels=config.get("model_channels", 32),
+    ).to(device)
     model.load_state_dict(ckpt["model_state_dict"])
     model.eval()
 

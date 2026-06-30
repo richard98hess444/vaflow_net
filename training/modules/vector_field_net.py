@@ -4,34 +4,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from modules.grid_encoder import GridEncoder
-
-
-class QueryVectorFieldNet(nn.Module):
-    """Legacy query model kept for loading older checkpoints."""
-
-    def __init__(self, latent_dim=64, hidden_dim=128, coord_dim=2, out_dim=2):
-        super().__init__()
-        self.encoder = GridEncoder(latent_dim)
-        in_dim = latent_dim + coord_dim + coord_dim
-        self.mlp = nn.Sequential(
-            nn.Linear(in_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, out_dim),
-        )
-
-    def forward(self, grid, goal, query):
-        latent = self.encoder(grid)
-        num_queries = query.shape[1]
-
-        latent = latent.unsqueeze(1).expand(-1, num_queries, -1)
-        goal = goal.unsqueeze(1).expand(-1, num_queries, -1)
-
-        feat = torch.cat([latent, goal, query], dim=-1)
-        return self.mlp(feat)
-
 
 class ConvBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
@@ -50,8 +22,7 @@ class ConvBlock(nn.Module):
 class VectorFieldNet(nn.Module):
     """Dense obstacle-aware vector-field predictor.
 
-    Predicts the full field from the obstacle grid and goal. Query-based calls
-    are still supported by sampling from the dense field.
+    Predicts the full ``(B, H, W, 2)`` flow field directly from the obstacle grid and goal.
     """
 
     def __init__(
@@ -125,24 +96,8 @@ class VectorFieldNet(nn.Module):
         dec1 = self.dec1(torch.cat([up1, enc1], dim=1))
 
         dense = self.head(dec1)
-        return dense.permute(0, 2, 3, 1)
+        return dense.permute(0, 2, 3, 1)  # (B, 1, H, W) -> (B, H, W, 2)
 
-    @staticmethod
-    def _sample_queries(dense_field, query):
-        dense_chw = dense_field.permute(0, 3, 1, 2)
-        sample_grid = query[..., [1, 0]] * 2.0 - 1.0
-        sample_grid = sample_grid.unsqueeze(2)
-        sampled = F.grid_sample(
-            dense_chw,
-            sample_grid,
-            mode="bilinear",
-            padding_mode="border",
-            align_corners=True,
-        )
-        return sampled.squeeze(-1).transpose(1, 2)
-
-    def forward(self, grid, goal, query=None):
+    def forward(self, grid, goal):
         dense_field = self.forward_dense(grid, goal)
-        if query is None:
-            return dense_field
-        return self._sample_queries(dense_field, query)
+        return dense_field

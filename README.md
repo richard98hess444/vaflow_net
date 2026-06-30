@@ -67,9 +67,7 @@ predictor.
   obstacle grid and goal using a small encoder-decoder CNN.
 - Training loss now compares the predicted full field against the target full
   field, instead of supervising only a random subset of queried cells.
-- Checkpoints now save an `architecture` field. New checkpoints use
-  `dense_cnn`, while the visualizer still supports loading older `query_mlp`
-  checkpoints.
+- Checkpoints save an `architecture` field set to `dense_cnn`.
 
 ### Why this helped
 
@@ -82,14 +80,12 @@ predictor.
 
 ### Files changed
 
-- `training/modules/vector_field_net.py`: replaced the main predictor with a
-  dense CNN and kept legacy query-model loading support.
+- `training/modules/vector_field_net.py`: the predictor is a dense CNN.
 - `training/trainer.py`: switched training and evaluation from random-query MSE
   to full-field dense MSE.
 - `training/configs/config.py`: added `model_channels` for the dense model
   width.
-- `training/run_visualizer.py`: loads both new dense checkpoints and older
-  query-model checkpoints.
+- `training/run_visualizer.py`: loads checkpoints.
 
 ### How to train the new model
 
@@ -117,14 +113,6 @@ specific `.pt` file:
 conda activate gvf
 python training/run_visualizer.py models/your_checkpoint.pt
 ```
-
-### Important migration note
-
-- Old checkpoints trained with the query MLP are still loadable for
-  visualization.
-- They are not compatible with the new dense architecture for continued
-  training.
-- To benefit from the new model, retrain from scratch.
 
 ### Known caveat: diagonal corner behavior
 
