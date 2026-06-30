@@ -52,66 +52,7 @@ Run from the repo root:
 ```bash
 python training/run_trainer.py     # train + visualize, saves a .pt model
 python training/run_visualizer.py    # load latest .pt and visualize
-```
-
-## Dense Flow Model Update
-
-The training model was changed from a query-based MLP predictor to a dense CNN
-predictor.
-
-### What changed
-
-- Old model: encode the full obstacle grid into one latent vector, then predict
-  the flow at a queried cell from `[latent, goal, query]`.
-- New model: predict the full `(n, n, 2)` vector field directly from the
-  obstacle grid and goal using a small encoder-decoder CNN.
-- Training loss now compares the predicted full field against the target full
-  field, instead of supervising only a random subset of queried cells.
-- Checkpoints save an `architecture` field set to `dense_cnn`.
-
-### Why this helped
-
-- Obstacle geometry is preserved through the network instead of being collapsed
-  into one global latent.
-- Local obstacle effects are easier to learn because the model predicts with
-  spatial feature maps.
-- Dense supervision makes optimization more stable than random query sampling,
-  so training and validation curves are usually smoother.
-
-### Files changed
-
-- `training/modules/vector_field_net.py`: the predictor is a dense CNN.
-- `training/trainer.py`: switched training and evaluation from random-query MSE
-  to full-field dense MSE.
-- `training/configs/config.py`: added `model_channels` for the dense model
-  width.
-- `training/run_visualizer.py`: loads checkpoints.
-
-### How to train the new model
-
-If you use the `env_vfn` virtual environment:
-
-```bash
-source env_vfn/bin/activate
-python training/run_trainer.py
-```
-
-This will train the dense model from scratch and save a new checkpoint under
-`models/`.
-
-### How to inspect the result
-
-```bash
-source env_vfn/bin/activate
-python training/run_visualizer.py
-```
-
-The visualizer loads the newest checkpoint by default. It can also load a
-specific `.pt` file:
-
-```bash
-source env_vfn/bin/activate
-python training/run_visualizer.py models/your_checkpoint.pt
+python training/run_visualizer.py models/your_checkpoint.pt    # visualize a pre-trained model
 ```
 
 ### Known caveat: diagonal corner behavior
