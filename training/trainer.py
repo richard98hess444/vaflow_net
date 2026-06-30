@@ -5,6 +5,7 @@ which preserves spatial obstacle geometry throughout the prediction path.
 """
 
 from pathlib import Path
+import time
 
 import numpy as np
 import torch
@@ -159,6 +160,8 @@ class Trainer:
         self.val_loss_history = []
         self.best_val_loss = float("inf")
 
+        start_time = time.perf_counter()
+
         for epoch in range(config.epochs):
             self.model.train()
             epoch_loss = 0.0
@@ -189,9 +192,11 @@ class Trainer:
                 }
 
             if (epoch + 1) % 10 == 0 or epoch == config.epochs - 1:
+                elapsed = time.perf_counter() - start_time
                 print(
                     f"Epoch [{epoch + 1}/{config.epochs}] "
-                    f"train_loss: {train_loss:.6f}  val_loss: {val_loss:.6f}"
+                    f"train_loss: {train_loss:.6f}  val_loss: {val_loss:.6f}  "
+                    f"elapsed: {elapsed:.1f}s"
                 )
 
         print(f"Best val loss: {self.best_val_loss:.6f}")
