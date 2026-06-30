@@ -33,8 +33,6 @@ class Trainer:
         print(f"Using device: {self.device}")
 
         self.model = VectorFieldNet(
-            latent_dim=config.latent_dim,
-            hidden_dim=config.hidden_dim,
             base_channels=config.model_channels,
         ).to(self.device)
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=config.lr)
@@ -222,8 +220,6 @@ class Trainer:
                 "model_state_dict": self.model.state_dict(),
                 "config": {
                     "architecture": "dense_cnn",
-                    "latent_dim": config.latent_dim,
-                    "hidden_dim": config.hidden_dim,
                     "model_channels": config.model_channels,
                     "grid_size": config.grid_size,
                 },

@@ -37,8 +37,6 @@ def load_model(ckpt_path, device):
     config = ckpt["config"]
 
     model = VectorFieldNet(
-        latent_dim=config.get("latent_dim", 64),
-        hidden_dim=config.get("hidden_dim", 128),
         base_channels=config.get("model_channels", 32),
     ).to(device)
     model.load_state_dict(ckpt["model_state_dict"])

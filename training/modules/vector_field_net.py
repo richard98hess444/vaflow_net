@@ -27,13 +27,10 @@ class VectorFieldNet(nn.Module):
 
     def __init__(
         self,
-        latent_dim=64,
-        hidden_dim=128,
         base_channels=32,
         out_dim=2,
     ):
         super().__init__()
-        del latent_dim, hidden_dim
 
         in_channels = 6  # obstacle, goal map, row/col coords, row/col offsets
         self.enc1 = ConvBlock(in_channels, base_channels)
