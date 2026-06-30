@@ -60,7 +60,9 @@ class VectorFieldNet(nn.Module):
         row_offset = row_grid - goal_row
         col_offset = col_grid - goal_col
 
-        goal_map = torch.zeros((batch_size, 1, height, width), device=device, dtype=dtype)
+        goal_map = torch.zeros(
+            (batch_size, 1, height, width), device=device, dtype=dtype
+        )
         goal_rows = torch.round(goal[:, 0] * (height - 1)).long().clamp(0, height - 1)
         goal_cols = torch.round(goal[:, 1] * (width - 1)).long().clamp(0, width - 1)
         goal_map[
@@ -70,7 +72,9 @@ class VectorFieldNet(nn.Module):
             goal_cols,
         ] = 1.0
 
-        return torch.cat([grid, goal_map, row_grid, col_grid, row_offset, col_offset], dim=1)
+        return torch.cat(
+            [grid, goal_map, row_grid, col_grid, row_offset, col_offset], dim=1
+        )
 
     def forward_dense(self, grid, goal):
         features = self._build_input_features(grid, goal)

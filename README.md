@@ -1,4 +1,4 @@
-# Vecancy Flow Navigation
+# Vacancy Flow Navigation
 
 ## Quick Start
 
@@ -89,10 +89,10 @@ predictor.
 
 ### How to train the new model
 
-If you use the `gvf` conda environment:
+If you use the `env_vfn` virtual environment:
 
 ```bash
-conda activate gvf
+source env_vfn/bin/activate
 python training/run_trainer.py
 ```
 
@@ -102,7 +102,7 @@ This will train the dense model from scratch and save a new checkpoint under
 ### How to inspect the result
 
 ```bash
-conda activate gvf
+source env_vfn/bin/activate
 python training/run_visualizer.py
 ```
 
@@ -110,7 +110,7 @@ The visualizer loads the newest checkpoint by default. It can also load a
 specific `.pt` file:
 
 ```bash
-conda activate gvf
+source env_vfn/bin/activate
 python training/run_visualizer.py models/your_checkpoint.pt
 ```
 
