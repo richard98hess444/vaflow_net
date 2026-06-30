@@ -60,6 +60,21 @@ class BreadthFirstSearch:
                 if random.random() < obstacle_prob:
                     grid[r][c] = 1
 
+        for r in range(n):
+            for c in range(n):
+                if (r, c) == center:
+                    continue
+                if grid[r][c] == 0:
+                    continue
+
+                # Ensure at least one free neighbor for each obstacle
+                has_obstacle_neighbor = any(
+                    self._is_inside(r + dr, c + dc, n) and grid[r + dr][c + dc] == 1
+                    for dr, dc, _ in self.dirs
+                )
+                if not has_obstacle_neighbor:
+                    grid[r][c] = 0
+
         return grid
 
     def compute_flow_map(self, grid, source=None):
