@@ -249,13 +249,91 @@ class GridFlowSimulator:
 
         lr = int(round(half + best_t * dy))
         lc = int(round(half + best_t * dx))
-        lr = max(0, min(last, lr))
-        lc = max(0, min(last, lc))
+        lr = max(0, min(diameter, lr))
+        lc = max(0, min(diameter, lc))
+
+        # The projected cell may be a bad flow source: it can land on an
+        # obstacle, or be a free cell that the robot cannot actually reach
+        # (walled off from the center, or in a disconnected dead-end pocket).
+        # Flow from such a cell can never connect back to the robot, so slide
+        # along the same border to the nearest cell the robot can reach. We
+        # flood-fill the free space from the robot's center once, then pick the
+        # nearest reachable border cell.
+        if self.local_map is not None:
+            reachable = self._reachable_from_center()
+            if not reachable[lr, lc]:
+                better = self._nearest_reachable_on_edge(lr, lc, reachable)
+                if better is not None:
+                    lr, lc = better
+
         return (lr, lc)
 
-    # ------------------------------------------------------------------------
-    # Goal check
-    # ------------------------------------------------------------------------
+    def _reachable_from_center(self):
+        """Boolean mask of local cells reachable from the robot (center).
+
+        Flood-fills the free cells (value 0) with 8-connectivity starting at
+        the center cell where the robot stands. This matches WaterFlow's
+        8-neighbour spreading. A border cell is a valid flow source only if it
+        is reachable here; otherwise flow from it can never reach the robot,
+        even if the cell itself is free with a free neighbour (e.g. a small
+        dead-end pocket sealed off from the rest of the map).
+        """
+        n = self.local_size
+        reachable = np.zeros((n, n), dtype=bool)
+        if self.local_map is None:
+            return reachable
+
+        center = self.radius
+        if self.local_map[center, center] != 0:
+            return reachable  # robot on an obstacle: nothing is reachable
+
+        stack = [(center, center)]
+        reachable[center, center] = True
+        while stack:
+            r, c = stack.pop()
+            for dr in (-1, 0, 1):
+                for dc in (-1, 0, 1):
+                    if dr == 0 and dc == 0:
+                        continue
+                    nr, nc = r + dr, c + dc
+                    if (
+                        0 <= nr < n
+                        and 0 <= nc < n
+                        and not reachable[nr, nc]
+                        and self.local_map[nr, nc] == 0
+                    ):
+                        reachable[nr, nc] = True
+                        stack.append((nr, nc))
+        return reachable
+
+    def _nearest_reachable_on_edge(self, lr, lc, reachable):
+        """Closest reachable border cell to (lr, lc) along its own edge(s).
+
+        (lr, lc) is expected to lie on the border of the local map. We search
+        the border edge(s) it belongs to (a full row for the top/bottom edge, a
+        full column for the left/right edge; both for a corner) and return the
+        nearest cell that is reachable from the robot's center (per `reachable`
+        from _reachable_from_center). Returns None if that edge has no reachable
+        cell at all.
+        """
+        diameter = self.local_size - 1
+        candidates = []
+        if lr == 0 or lr == diameter:  # top/bottom edge -> slide along columns
+            candidates.extend((lr, c) for c in range(self.local_size))
+        if lc == 0 or lc == diameter:  # left/right edge -> slide along rows
+            candidates.extend((r, lc) for r in range(self.local_size))
+
+        best = None
+        best_d = None
+        for r, c in candidates:
+            if not reachable[r, c]:
+                continue
+            d = (r - lr) ** 2 + (c - lc) ** 2  # squared distance is enough
+            if best_d is None or d < best_d:
+                best_d = d
+                best = (r, c)
+        return best
+
     def reached_goal(self, tol=0):
         """True if the robot is at (or within `tol` cells of) the goal."""
         if self.robot_pos is None or self.goal is None:
