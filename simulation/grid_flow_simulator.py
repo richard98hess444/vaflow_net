@@ -28,7 +28,7 @@ from gridflow.algorithms import WaterFlow
 from gridflow.utils import setup_axes, overlay_obstacles_and_source
 
 _TRAINING_DIR = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..", "training")
+    draw_vector_field,
 )
 if _TRAINING_DIR not in sys.path:
     sys.path.insert(0, _TRAINING_DIR)
@@ -461,23 +461,6 @@ class GridFlowSimulator:
 
         return target_vectors.astype(np.float32), np.arange(n)
 
-    @staticmethod
-    def _draw_vector_field(ax, vectors, positions):
-        rows, cols = np.meshgrid(positions, positions, indexing="ij")
-        u = vectors[..., 1]  # dcol -> x (rightward)
-        v = vectors[..., 0]  # drow -> y (downward)
-        ax.quiver(
-            cols,
-            rows,
-            u,
-            v,
-            angles="xy",
-            scale_units="xy",
-            scale=1.0,
-            color="blue",
-            zorder=4,
-        )
-
     def _draw_local_map(self, ax, local, goal_cell):
         n = self.local_size
         ax.clear()
@@ -564,7 +547,7 @@ class GridFlowSimulator:
                 raise RuntimeError("Overlay render axis was not initialized")
             self._draw_local_map(self._ax, local, goal_cell)
             if flow_shown:
-                self._draw_vector_field(self._ax, pred_field, pred_positions)
+                draw_vector_field(self._ax, pred_field, pred_positions)
         else:
             if self._axes is None:
                 raise RuntimeError("Compare render axes were not initialized")
@@ -573,13 +556,13 @@ class GridFlowSimulator:
             self._draw_local_map(ax_pred, local, goal_cell)
 
             if target_field is not None:
-                self._draw_vector_field(ax_gt, target_field, target_positions)
+                draw_vector_field(ax_gt, target_field, target_positions)
                 ax_gt.set_title("Ground truth")
             else:
                 ax_gt.set_title("Ground truth (unavailable)")
 
             if flow_shown:
-                self._draw_vector_field(ax_pred, pred_field, pred_positions)
+                draw_vector_field(ax_pred, pred_field, pred_positions)
                 ax_pred.set_title("Prediction")
             else:
                 ax_pred.set_title("Prediction (no model)")

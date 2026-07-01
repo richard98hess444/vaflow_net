@@ -1,13 +1,18 @@
 """Visualization utilities for the neural vector-field model.
 
-Reuses the grid / obstacle drawing helpers from ``gvf.utils.plotting`` and adds
-quiver-based comparison of predicted vs ground-truth flow vector fields.
+Reuses the grid / obstacle / quiver drawing helpers from
+``gridflow.utils.plotting`` and adds a side-by-side comparison of predicted vs
+ground-truth flow vector fields.
 """
 
 import matplotlib.pyplot as plt
 import numpy as np
 
-from gridflow.utils.plotting import setup_axes, overlay_obstacles_and_source
+from gridflow.utils.plotting import (
+    setup_axes,
+    overlay_obstacles_and_source,
+    draw_vector_field,
+)
 
 
 def plot_vector_field(vectors, grid, goal=None, ax=None, title=None, positions=None):
@@ -28,25 +33,9 @@ def plot_vector_field(vectors, grid, goal=None, ax=None, title=None, positions=N
 
     if positions is None:
         positions = np.arange(n)
-    rows, cols = np.meshgrid(positions, positions, indexing="ij")
 
-    # vectors[..., 0] = drow (y, downward), vectors[..., 1] = dcol (x, rightward)
-    u = vectors[..., 1]  # x-component
-    v = vectors[..., 0]  # y-component (row increases downward)
-
-    ax.quiver(
-        cols,
-        rows,
-        u,
-        v,
-        angles="xy",
-        scale_units="xy",
-        scale=1.0,
-        color="blue",
-        zorder=4,
-    )
-
-    # Pixel-style grid (minor ticks on cell boundaries) + obstacle/goal overlay.
+    # Quiver arrows (shared primitive) + pixel-style grid and obstacle overlay.
+    draw_vector_field(ax, vectors, positions=positions)
     setup_axes(ax, n)
     overlay_obstacles_and_source(ax, grid, source=goal)
 
