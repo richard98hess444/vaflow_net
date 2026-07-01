@@ -50,6 +50,41 @@ def overlay_obstacles_and_source(ax: plt.Axes, grid: list[list[int]], source=Non
         )
 
 
+def draw_vector_field(ax, vectors, positions=None, color="blue"):
+    """Draw a flow field as a quiver plot on `ax` (no obstacle overlay).
+
+    This is the shared quiver-drawing primitive used by the training
+    visualizer and the simulation renderer, so the arrow-drawing logic lives
+    in one place.
+
+    Args:
+        ax: matplotlib Axes to draw on.
+        vectors: (R, R, 2) array of (drow, dcol) vectors.
+        positions: optional (R,) array of coordinates (in cell units) along
+            each axis. Defaults to integer cells range(R).
+        color: arrow color.
+    """
+    r = vectors.shape[0]
+    if positions is None:
+        positions = np.arange(r)
+    rows, cols = np.meshgrid(positions, positions, indexing="ij")
+    # vectors[..., 0] = drow (y, downward), vectors[..., 1] = dcol (x, rightward)
+    u = vectors[..., 1]  # x-component (rightward)
+    v = vectors[..., 0]  # y-component (row increases downward)
+    ax.quiver(
+        cols,
+        rows,
+        u,
+        v,
+        angles="xy",
+        scale_units="xy",
+        scale=1.0,
+        color=color,
+        zorder=4,
+    )
+    return ax
+
+
 def plot_grid(grid: list[list[int]], source=None):
     """Plot a grid with obstacles and source."""
     n = len(grid)

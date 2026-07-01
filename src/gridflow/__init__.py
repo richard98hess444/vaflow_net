@@ -14,6 +14,7 @@ from .utils import (
     plot_flow_on_thresholded_grid,
     plot_path_on_thresholded_grid,
     overlay_obstacles_and_source,
+    draw_vector_field,
     setup_axes,
 )
 
@@ -33,5 +34,6 @@ __all__ = [
     "plot_flow_on_thresholded_grid",
     "plot_path_on_thresholded_grid",
     "overlay_obstacles_and_source",
+    "draw_vector_field",
     "setup_axes",
 ]

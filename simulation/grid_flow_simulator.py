@@ -1,0 +1,593 @@
+"""A simple teleoperated robot simulation on a grid world.
+
+The robot lives in a large world map (default 128x128) and carries a small
+local map (default 21x21) that represents what it can scan around itself. The
+local map matches the grid size the vector-field model was trained on.
+
+Coordinate convention: (row, col), 0 = free cell, 1 = obstacle.
+
+Because the local map is `local_size` wide (an odd number) and centered on the
+robot, the robot/goal must stay far enough from the world border for the local
+window to fit. With a 128x128 world and a 21x21 local map, the valid range for
+both row and col is [10, 117] (i.e. < 118), which is why goals and start
+positions are constrained to "within 118x118".
+"""
+
+import random
+from typing import cast
+
+import numpy as np
+import torch
+import torch.nn.functional as F
+import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
+
+from gridflow.algorithms import WaterFlow
+from gridflow.utils import (
+    setup_axes,
+    overlay_obstacles_and_source,
+    draw_vector_field,
+)
+from gridflow_nn import VectorFieldNet
+
+# 8-neighbor movement deltas, keyed by an arrow / name for convenient teleop.
+DIRECTIONS = {
+    "up": (-1, 0),
+    "down": (1, 0),
+    "left": (0, -1),
+    "right": (0, 1),
+    "up_left": (-1, -1),
+    "up_right": (-1, 1),
+    "down_left": (1, -1),
+    "down_right": (1, 1),
+}
+
+
+class GridFlowSimulator:
+    """Teleoperated robot on a grid world with a rolling local scan map."""
+
+    def __init__(
+        self,
+        world_size=128,
+        local_size=21,
+        obstacle_prob=0.2,
+        grid_seed=None,
+    ):
+        if local_size % 2 == 0:
+            raise ValueError("local_size must be odd so the robot sits at its center")
+        if world_size < local_size:
+            raise ValueError("world_size must be at least local_size")
+
+        self.world_size = world_size
+        self.local_size = local_size
+        self.radius = local_size // 2  # distance from robot to local-map edge
+
+        # Valid positions keep the whole local window inside the world.
+        self.min_pos = self.radius
+        self.max_pos = world_size - self.radius - 1
+
+        self.wf = WaterFlow()
+        self.wf_target_threshold = 0.05
+        self.world = self._generate_world(world_size, obstacle_prob, grid_seed)
+
+        self.robot_pos = None  # (row, col)
+        self.goal = None  # (row, col)
+        self.local_map = None  # (local_size, local_size) numpy array
+
+        # Matplotlib handles for the live local-map view (created lazily).
+        self._fig = None
+        self._ax = None
+        self._axes = None
+        self._render_mode = None
+
+        # Pre-trained flow model (loaded on demand via load_model()).
+        self.model = None
+        self.device = None
+
+    def _generate_world(self, size, obstacle_prob, seed):
+        """Build a `size`x`size` world from `generate_sparse_grid`.
+
+        `generate_sparse_grid` requires an odd grid size, so for an even world
+        we generate one cell larger and crop back down to `size`.
+        """
+        gen_n = size if size % 2 == 1 else size + 1
+        grid = self.wf.generate_sparse_grid(
+            n=gen_n, obstacle_prob=obstacle_prob, min_side=5, max_side=10, seed=seed
+        )
+        world = np.array(grid, dtype=np.int8)
+        return world[:size, :size]
+
+    def _is_valid_pos(self, r, c):
+        """True if (r, c) is in range AND not an obstacle."""
+        in_range = (
+            self.min_pos <= r <= self.max_pos and self.min_pos <= c <= self.max_pos
+        )
+        return in_range and self.world[r, c] == 0
+
+    def _check_in_range(self, r, c, what):
+        if not (
+            self.min_pos <= r <= self.max_pos and self.min_pos <= c <= self.max_pos
+        ):
+            raise ValueError(
+                f"{what} ({r}, {c}) out of valid range "
+                f"[{self.min_pos}, {self.max_pos}] for both axes."
+            )
+
+    def set_goal(self, r, c):
+        """Place the goal at (r, c). The cell is forced free so it's reachable."""
+        self._check_in_range(r, c, "goal")
+        self.world[r, c] = 0  # ensure the goal stands on free ground
+        self.goal = (r, c)
+        return self.goal
+
+    def generate_goal(self, seed=None):
+        """Pick a random free goal within the valid range."""
+        rng = random.Random(seed)
+        while True:
+            r = rng.randint(self.min_pos, self.max_pos)
+            c = rng.randint(self.min_pos, self.max_pos)
+            if self.world[r, c] == 0:
+                self.goal = (r, c)
+                return self.goal
+
+    def set_start_pos(self, r, c):
+        """Place the robot at (r, c). The cell is forced free, then we scan."""
+        self._check_in_range(r, c, "start position")
+        self.world[r, c] = 0  # the robot must stand on free ground
+        self.robot_pos = (r, c)
+        self._update_local_map()
+        return self.robot_pos
+
+    def move(self, dr, dc):
+        """Move the robot by (dr, dc) and refresh the local map.
+
+        Returns True if the move succeeded. The move is rejected (position
+        unchanged) if it would leave the valid range or step into an obstacle.
+        """
+        if self.robot_pos is None:
+            raise RuntimeError("Call set_start_pos() before move().")
+
+        r, c = self.robot_pos
+        nr, nc = r + dr, c + dc
+
+        if not self._is_valid_pos(nr, nc):
+            return False
+
+        self.robot_pos = (nr, nc)
+        self._update_local_map()
+        return True
+
+    def move_dir(self, name, steps=1):
+        """Convenience teleop: move by a named direction (see DIRECTIONS)."""
+        if name not in DIRECTIONS:
+            raise ValueError(
+                f"Unknown direction '{name}'. Options: {sorted(DIRECTIONS)}"
+            )
+        dr, dc = DIRECTIONS[name]
+        return self.move(dr * steps, dc * steps)
+
+    def _update_local_map(self):
+        """Extract the `local_size`x`local_size` window centered on the robot."""
+        if self.robot_pos is None:
+            raise RuntimeError("Robot position is not set")
+        r, c = self.robot_pos
+        h = self.radius
+        self.local_map = self.world[r - h : r + h + 1, c - h : c + h + 1].copy()
+
+    def get_local_map(self):
+        """Return the current local scan map (robot at the center cell)."""
+        if self.local_map is None:
+            raise RuntimeError("No local map yet. Call set_start_pos() first.")
+        return self.local_map
+
+    def goal_in_local_frame(self):
+        """Goal position relative to the local map's top-left corner.
+
+        Returns (row, col) within [0, local_size) if the goal currently falls
+        inside the robot's scan window, otherwise None.
+        """
+        if self.robot_pos is None or self.goal is None:
+            return None
+        assert self.robot_pos is not None and self.goal is not None
+        r, c = self.robot_pos
+        gr, gc = self.goal
+        lr, lc = gr - (r - self.radius), gc - (c - self.radius)
+        if 0 <= lr < self.local_size and 0 <= lc < self.local_size:
+            return (lr, lc)
+        return None
+
+    def goal_edge_cell(self):
+        """Local-frame cell where the goal marker should be drawn.
+
+        If the goal is inside the local window, returns its true local cell.
+        Otherwise it projects the robot->goal ray onto the border of the local
+        map and returns the cell where that ray crosses the edge. This gives a
+        rough "the goal is that way" indicator that slides along the border as
+        the robot moves.
+        """
+        if self.robot_pos is None or self.goal is None:
+            return None
+        assert self.robot_pos is not None and self.goal is not None
+
+        inside = self.goal_in_local_frame()
+        if inside is not None:
+            return inside
+
+        half = self.radius
+        diameter = 2 * half  # max local index (local_size - 1)
+        r, c = self.robot_pos
+        gr, gc = self.goal
+        dy, dx = gr - r, gc - c  # direction from robot (local center) to goal
+
+        # Walk a ray from the center (half, half) and find the smallest t > 0
+        # at which it exits the [0, diameter] x [0, diameter] square.
+        best_t = None
+        for delta, edges in ((dy, (0, diameter)), (dx, (0, diameter))):
+            if delta == 0:
+                continue
+            for edge in edges:
+                t = (edge - half) / delta
+                if t <= 0:
+                    continue
+                row = half + t * dy
+                col = half + t * dx
+                if -1e-9 <= row <= diameter + 1e-9 and -1e-9 <= col <= diameter + 1e-9:
+                    best_t = t if best_t is None else min(best_t, t)
+
+        if best_t is None:
+            return (0, 0)  # degenerate (e.g. robot already on the goal)
+
+        lr = int(round(half + best_t * dy))
+        lc = int(round(half + best_t * dx))
+        lr = max(0, min(diameter, lr))
+        lc = max(0, min(diameter, lc))
+
+        # The projected cell may be a bad flow source: it can land on an
+        # obstacle, or be a free cell that the robot cannot actually reach
+        # (walled off from the center, or in a disconnected dead-end pocket).
+        # Flow from such a cell can never connect back to the robot, so slide
+        # along the same border to the nearest cell the robot can reach. We
+        # flood-fill the free space from the robot's center once, then pick the
+        # nearest reachable border cell.
+        if self.local_map is not None:
+            reachable = self._reachable_from_center()
+            if not reachable[lr, lc]:
+                better = self._nearest_reachable_on_edge(lr, lc, reachable)
+                if better is not None:
+                    lr, lc = better
+
+        return (lr, lc)
+
+    def _reachable_from_center(self):
+        """Boolean mask of local cells reachable from the robot (center).
+
+        Flood-fills the free cells (value 0) with 8-connectivity starting at
+        the center cell where the robot stands. This matches WaterFlow's
+        8-neighbour spreading. A border cell is a valid flow source only if it
+        is reachable here; otherwise flow from it can never reach the robot,
+        even if the cell itself is free with a free neighbour (e.g. a small
+        dead-end pocket sealed off from the rest of the map).
+        """
+        n = self.local_size
+        reachable = np.zeros((n, n), dtype=bool)
+        if self.local_map is None:
+            return reachable
+
+        center = self.radius
+        if self.local_map[center, center] != 0:
+            return reachable  # robot on an obstacle: nothing is reachable
+
+        stack = [(center, center)]
+        reachable[center, center] = True
+        while stack:
+            r, c = stack.pop()
+            for dr in (-1, 0, 1):
+                for dc in (-1, 0, 1):
+                    if dr == 0 and dc == 0:
+                        continue
+                    nr, nc = r + dr, c + dc
+                    if (
+                        0 <= nr < n
+                        and 0 <= nc < n
+                        and not reachable[nr, nc]
+                        and self.local_map[nr, nc] == 0
+                    ):
+                        reachable[nr, nc] = True
+                        stack.append((nr, nc))
+        return reachable
+
+    def _nearest_reachable_on_edge(self, lr, lc, reachable):
+        """Closest reachable border cell to (lr, lc) along its own edge(s).
+
+        (lr, lc) is expected to lie on the border of the local map. We search
+        the border edge(s) it belongs to (a full row for the top/bottom edge, a
+        full column for the left/right edge; both for a corner) and return the
+        nearest cell that is reachable from the robot's center (per `reachable`
+        from _reachable_from_center). Returns None if that edge has no reachable
+        cell at all.
+        """
+        diameter = self.local_size - 1
+        candidates = []
+        if lr == 0 or lr == diameter:  # top/bottom edge -> slide along columns
+            candidates.extend((lr, c) for c in range(self.local_size))
+        if lc == 0 or lc == diameter:  # left/right edge -> slide along rows
+            candidates.extend((r, lc) for r in range(self.local_size))
+
+        best = None
+        best_d = None
+        for r, c in candidates:
+            if not reachable[r, c]:
+                continue
+            d = (r - lr) ** 2 + (c - lc) ** 2  # squared distance is enough
+            if best_d is None or d < best_d:
+                best_d = d
+                best = (r, c)
+        return best
+
+    def reached_goal(self, tol=0):
+        """True if the robot is at (or within `tol` cells of) the goal."""
+        if self.robot_pos is None or self.goal is None:
+            return False
+        r, c = self.robot_pos
+        gr, gc = self.goal
+        return abs(r - gr) <= tol and abs(c - gc) <= tol
+
+    def load_model(self, ckpt_path):
+        """Load a trained dense VectorFieldNet checkpoint for local inference.
+
+        The model's grid size must match this simulator's local_size, since we
+        feed the local scan map straight into it.
+        """
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        ckpt = torch.load(ckpt_path, map_location=self.device)
+        config = ckpt["config"]
+        model_grid = config.get("grid_size")
+        if model_grid is not None and model_grid != self.local_size:
+            raise ValueError(
+                f"Model grid_size {model_grid} != local_size {self.local_size}; "
+                "they must match to run inference on the local map."
+            )
+
+        model = VectorFieldNet(base_channels=config.get("model_channels", 32))
+        model.load_state_dict(ckpt["model_state_dict"])
+        model.to(self.device).eval()
+        self.model = model
+        return model
+
+    def predict_local_flow(self, step=1.0):
+        """Run the model on the current local map + local goal.
+
+        The goal handed to the model is `goal_edge_cell()` (the true cell if the
+        goal is in view, otherwise its projection onto the local border).
+
+        Args:
+            step: spacing between arrows in cell units. 1.0 gives one arrow per
+                cell; 0.5 gives a 2x denser grid (2 arrows per cell per axis),
+                0.25 a 4x denser grid, etc. Sub-cell points are bilinearly
+                resampled from the model's dense output.
+
+        Returns (field, positions) where field is (R, R, 2) of (drow, dcol)
+        vectors and positions is (R,) coordinates in cell units, or
+        (None, None) if no model/goal/local map is available.
+        """
+        if (
+            self.model is None
+            or self.local_map is None
+            or self.goal is None
+            or self.device is None
+        ):
+            return None, None
+
+        n = self.local_size
+        goal_cell = self.goal_edge_cell()
+        if goal_cell is None:
+            return None, None
+
+        grid_t = torch.tensor(self.local_map, dtype=torch.float32)  # (n, n)
+        goal_t = torch.tensor(goal_cell, dtype=torch.float32) / (n - 1)  # (2,)
+
+        grid_b = grid_t.unsqueeze(0).unsqueeze(0).to(self.device)  # (1, 1, n, n)
+        goal_b = goal_t.unsqueeze(0).to(self.device)  # (1, 2)
+
+        with torch.no_grad():
+            dense = self.model(grid_b, goal_b)  # (1, n, n, 2)
+
+            if step == 1.0:
+                field = dense.squeeze(0).cpu().numpy()
+                return field, np.arange(n)
+
+            positions = np.arange(0, n - 1 + 1e-9, step)
+            res = len(positions)
+            coords = [[r, c] for r in positions for c in positions]
+            query = torch.tensor(coords, dtype=torch.float32) / (n - 1)
+            query = query.to(self.device)
+
+            # Bilinearly resample the dense field at the sub-cell query points.
+            dense_chw = dense.permute(0, 3, 1, 2)  # (1, 2, n, n)
+            sample_grid = query[..., [1, 0]] * 2.0 - 1.0  # (R*R, 2) as (col, row)
+            sample_grid = sample_grid.view(1, res * res, 1, 2)
+            sampled = F.grid_sample(
+                dense_chw,
+                sample_grid,
+                mode="bilinear",
+                padding_mode="border",
+                align_corners=True,
+            )  # (1, 2, R*R, 1)
+            pred = sampled.squeeze(-1).squeeze(0).transpose(0, 1)  # (R*R, 2)
+
+        field = pred.reshape(res, res, 2).cpu().numpy()
+        return field, positions
+
+    def gt_local_flow(self, threshold=None):
+        """Compute the local WaterFlow target vectors for the current local map.
+
+        The source is `goal_edge_cell()` so target and prediction are aligned
+        even when the true world goal is currently outside the local window.
+        """
+        if self.local_map is None or self.goal is None:
+            return None, None
+
+        n = self.local_size
+        goal_cell = self.goal_edge_cell()
+        if goal_cell is None:
+            return None, None
+        grid = self.local_map.tolist()
+        threshold = self.wf_target_threshold if threshold is None else threshold
+
+        arrival_time_map = self.wf.compute_arrival_time_map(grid, source=goal_cell)
+        strength_map = self.wf.compute_strength_map(arrival_time_map, source=goal_cell)
+        viscosity_map = self.wf.compute_viscosity_map(grid, source=goal_cell)
+        filtered_map = self.wf.compute_filtered_map(
+            strength_map, viscosity_map, grid, source=goal_cell
+        )
+
+        thresholded_grid = self.wf.apply_strength_threshold(
+            filtered_map, grid, threshold=threshold, source=goal_cell
+        )
+
+        binary_thresholded_grid = [
+            [1 if thresholded_grid[r][c] != 0 else 0 for c in range(n)]
+            for r in range(n)
+        ]
+        binary_thresholded_grid[goal_cell[0]][goal_cell[1]] = 0
+
+        flow_map_t = self.wf.compute_flow_map(binary_thresholded_grid, source=goal_cell)
+        flow_map_r = self.wf.reverse_flow_map(flow_map_t)
+        target_vectors = self.wf.convert_flow_map_to_vectors(flow_map_r, strength_map)
+
+        return target_vectors.astype(np.float32), np.arange(n)
+
+    def _draw_local_map(self, ax, local, goal_cell):
+        n = self.local_size
+        ax.clear()
+        ax.imshow(
+            np.zeros((n, n)),
+            cmap="gray_r",
+            interpolation="nearest",
+            vmin=0,
+            vmax=1,
+        )
+        setup_axes(ax, n)
+        overlay_obstacles_and_source(ax, local, source=goal_cell)
+
+    def render(
+        self,
+        pause=0.001,
+        show_flow=True,
+        step=1.0,
+        plot_mode="overlay",
+        target_threshold=None,
+    ):
+        """Show the current local scan map, styled like `plot_grid`.
+
+        - obstacles are black, the robot (always the center cell) is red,
+          and the goal is green.
+        - if the goal is outside the local scan window, it is projected onto
+          the border of the local map (robot->goal ray intersection), so the
+          green cell slides along the edge pointing toward the real goal.
+        - if a model is loaded (see load_model) and `show_flow` is True, the
+          predicted flow field is overlaid as blue arrows. `step` controls the
+          arrow density (1.0 = one per cell, 0.5 = 2x denser, etc.).
+                - `plot_mode="overlay"` draws a single map like before.
+                - `plot_mode="compare"` draws side-by-side Ground truth and Prediction
+                    (similar to `plot_prediction_vs_target`).
+
+        The same figure is reused, so calling this each step animates the
+        robot's view in place.
+        """
+        if self.local_map is None:
+            raise RuntimeError("No local map yet. Call set_start_pos() first.")
+        if plot_mode not in ("overlay", "compare"):
+            raise ValueError("plot_mode must be 'overlay' or 'compare'")
+
+        local = self.local_map.tolist()
+
+        # Goal in the local frame, or its projection onto the border if it is
+        # outside the current scan window.
+        local_goal = self.goal_in_local_frame()
+        goal_cell = self.goal_edge_cell()
+
+        rebuild_figure = (
+            self._fig is None
+            or not plt.fignum_exists(self._fig.number)
+            or self._render_mode != plot_mode
+        )
+        if rebuild_figure:
+            plt.ion()
+            if plot_mode == "compare":
+                self._fig, axes = plt.subplots(1, 2, figsize=(12, 6))
+                self._axes = axes
+                self._ax = None
+            else:
+                self._fig, self._ax = plt.subplots(figsize=(6, 6))
+                self._axes = None
+            self._render_mode = plot_mode
+            assert self._fig is not None
+        fig = cast(Figure, self._fig)
+
+        # Overlay or compare modes share the same prediction/target computation.
+        pred_field = pred_positions = None
+        flow_shown = False
+        if show_flow and self.model is not None:
+            pred_field, pred_positions = self.predict_local_flow(step=step)
+            flow_shown = pred_field is not None
+
+        target_field = target_positions = None
+        if plot_mode == "compare":
+            target_field, target_positions = self.gt_local_flow(
+                threshold=target_threshold
+            )
+
+        if plot_mode == "overlay":
+            if self._ax is None:
+                raise RuntimeError("Overlay render axis was not initialized")
+            self._draw_local_map(self._ax, local, goal_cell)
+            if flow_shown:
+                draw_vector_field(self._ax, pred_field, pred_positions)
+        else:
+            if self._axes is None:
+                raise RuntimeError("Compare render axes were not initialized")
+            ax_gt, ax_pred = self._axes
+            self._draw_local_map(ax_gt, local, goal_cell)
+            self._draw_local_map(ax_pred, local, goal_cell)
+
+            if target_field is not None:
+                draw_vector_field(ax_gt, target_field, target_positions)
+                ax_gt.set_title("Ground truth")
+            else:
+                ax_gt.set_title("Ground truth (unavailable)")
+
+            if flow_shown:
+                draw_vector_field(ax_pred, pred_field, pred_positions)
+                ax_pred.set_title("Prediction")
+            else:
+                ax_pred.set_title("Prediction (no model)")
+
+        in_view = local_goal is not None
+        title = (
+            f"robot {self.robot_pos} | goal {self.goal} "
+            f"({'in view' if in_view else 'projected to edge'})"
+        )
+        if flow_shown:
+            title += " | predicted flow"
+        if plot_mode == "overlay":
+            assert self._ax is not None
+            self._ax.set_title(title)
+        else:
+            fig.suptitle(title)
+            fig.tight_layout()
+
+        fig.canvas.draw_idle()
+        plt.pause(pause)
+
+    def keep_open(self):
+        """Block until the user closes the figure (press 'q').
+
+        Use this after the goal is reached so the final frame stays on screen
+        instead of the program exiting immediately. 'q' is matplotlib's default
+        quit shortcut.
+        """
+        if self._fig is None or not plt.fignum_exists(self._fig.number):
+            return
+        plt.ioff()
+        plt.show()

@@ -14,7 +14,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader, random_split
 import matplotlib.pyplot as plt
 
-from modules import VectorFieldNet
+from gridflow_nn import VectorFieldNet
 from dataloader import FlowFieldDataset
 from configs import Config
 
@@ -44,7 +44,14 @@ class Trainer:
         self.best_val_loss = float("inf")
 
     @staticmethod
-    def predict_full_field(model, grid_t, goal_t, grid_size, device, step=1.0):
+    def predict_full_field(
+        model,
+        grid_t: torch.Tensor,
+        goal_t: torch.Tensor,
+        grid_size: int,
+        device: torch.device,
+        step: float = 1.0,
+    ):
         """Predict the flow vector on a (possibly sub-cell) grid of query points.
 
         Args:

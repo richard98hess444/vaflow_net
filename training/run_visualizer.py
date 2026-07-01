@@ -15,7 +15,7 @@ import glob
 import torch
 
 from trainer import Trainer
-from modules import VectorFieldNet
+from gridflow_nn import VectorFieldNet
 from dataloader import FlowFieldDataset
 from visualizer import plot_prediction_vs_target
 
