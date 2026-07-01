@@ -13,15 +13,26 @@ both row and col is [10, 117] (i.e. < 118), which is why goals and start
 positions are constrained to "within 118x118".
 """
 
+import os
+import sys
 import random
 from typing import cast
 
 import numpy as np
+import torch
+import torch.nn.functional as F
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 
-from gridflow.algorithms import BreadthFirstSearch, WaterFlow
+from gridflow.algorithms import WaterFlow
 from gridflow.utils import setup_axes, overlay_obstacles_and_source
+
+_TRAINING_DIR = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "training")
+)
+if _TRAINING_DIR not in sys.path:
+    sys.path.insert(0, _TRAINING_DIR)
+from modules import VectorFieldNet # noqa: E402  # pyright: ignore[reportMissingImports]
 
 # 8-neighbor movement deltas, keyed by an arrow / name for convenient teleop.
 DIRECTIONS = {
@@ -44,7 +55,7 @@ class GridFlowSimulator:
         world_size=128,
         local_size=21,
         obstacle_prob=0.2,
-        seed=None,
+        grid_seed=None,
     ):
         if local_size % 2 == 0:
             raise ValueError("local_size must be odd so the robot sits at its center")
@@ -53,16 +64,15 @@ class GridFlowSimulator:
 
         self.world_size = world_size
         self.local_size = local_size
-        self.half = local_size // 2  # distance from robot to local-map edge
+        self.radius = local_size // 2  # distance from robot to local-map edge
 
         # Valid positions keep the whole local window inside the world.
-        self.min_pos = self.half
-        self.max_pos = world_size - self.half - 1
+        self.min_pos = self.radius
+        self.max_pos = world_size - self.radius - 1
 
-        self.bfs = BreadthFirstSearch()
         self.wf = WaterFlow()
-        self.target_threshold = 0.05
-        self.world = self._generate_world(world_size, obstacle_prob, seed)
+        self.wf_target_threshold = 0.05
+        self.world = self._generate_world(world_size, obstacle_prob, grid_seed)
 
         self.robot_pos = None  # (row, col)
         self.goal = None  # (row, col)
@@ -77,11 +87,7 @@ class GridFlowSimulator:
         # Pre-trained flow model (loaded on demand via load_model()).
         self.model = None
         self.device = None
-        self._torch = None
 
-    # ------------------------------------------------------------------------
-    # World generation
-    # ------------------------------------------------------------------------
     def _generate_world(self, size, obstacle_prob, seed):
         """Build a `size`x`size` world from `generate_sparse_grid`.
 
@@ -95,9 +101,6 @@ class GridFlowSimulator:
         world = np.array(grid, dtype=np.int8)
         return world[:size, :size]
 
-    # ------------------------------------------------------------------------
-    # Position helpers
-    # ------------------------------------------------------------------------
     def _is_valid_pos(self, r, c):
         """True if (r, c) is in range AND not an obstacle."""
         in_range = (
@@ -114,9 +117,6 @@ class GridFlowSimulator:
                 f"[{self.min_pos}, {self.max_pos}] for both axes."
             )
 
-    # ------------------------------------------------------------------------
-    # Goal
-    # ------------------------------------------------------------------------
     def set_goal(self, r, c):
         """Place the goal at (r, c). The cell is forced free so it's reachable."""
         self._check_in_range(r, c, "goal")
@@ -134,9 +134,6 @@ class GridFlowSimulator:
                 self.goal = (r, c)
                 return self.goal
 
-    # ------------------------------------------------------------------------
-    # Robot placement and movement
-    # ------------------------------------------------------------------------
     def set_start_pos(self, r, c):
         """Place the robot at (r, c). The cell is forced free, then we scan."""
         self._check_in_range(r, c, "start position")
@@ -173,15 +170,12 @@ class GridFlowSimulator:
         dr, dc = DIRECTIONS[name]
         return self.move(dr * steps, dc * steps)
 
-    # ------------------------------------------------------------------------
-    # Local map (robot's scan)
-    # ------------------------------------------------------------------------
     def _update_local_map(self):
         """Extract the `local_size`x`local_size` window centered on the robot."""
         if self.robot_pos is None:
             raise RuntimeError("Robot position is not set")
         r, c = self.robot_pos
-        h = self.half
+        h = self.radius
         self.local_map = self.world[r - h : r + h + 1, c - h : c + h + 1].copy()
 
     def get_local_map(self):
@@ -201,7 +195,7 @@ class GridFlowSimulator:
         assert self.robot_pos is not None and self.goal is not None
         r, c = self.robot_pos
         gr, gc = self.goal
-        lr, lc = gr - (r - self.half), gc - (c - self.half)
+        lr, lc = gr - (r - self.radius), gc - (c - self.radius)
         if 0 <= lr < self.local_size and 0 <= lc < self.local_size:
             return (lr, lc)
         return None
@@ -223,16 +217,16 @@ class GridFlowSimulator:
         if inside is not None:
             return inside
 
-        half = self.half
-        last = 2 * half  # max local index (local_size - 1)
+        half = self.radius
+        diameter = 2 * half  # max local index (local_size - 1)
         r, c = self.robot_pos
         gr, gc = self.goal
         dy, dx = gr - r, gc - c  # direction from robot (local center) to goal
 
         # Walk a ray from the center (half, half) and find the smallest t > 0
-        # at which it exits the [0, last] x [0, last] square.
+        # at which it exits the [0, diameter] x [0, diameter] square.
         best_t = None
-        for delta, edges in ((dy, (0, last)), (dx, (0, last))):
+        for delta, edges in ((dy, (0, diameter)), (dx, (0, diameter))):
             if delta == 0:
                 continue
             for edge in edges:
@@ -241,7 +235,7 @@ class GridFlowSimulator:
                     continue
                 row = half + t * dy
                 col = half + t * dx
-                if -1e-9 <= row <= last + 1e-9 and -1e-9 <= col <= last + 1e-9:
+                if -1e-9 <= row <= diameter + 1e-9 and -1e-9 <= col <= diameter + 1e-9:
                     best_t = t if best_t is None else min(best_t, t)
 
         if best_t is None:
@@ -342,33 +336,13 @@ class GridFlowSimulator:
         gr, gc = self.goal
         return abs(r - gr) <= tol and abs(c - gc) <= tol
 
-    # ------------------------------------------------------------------------
-    # Pre-trained flow model
-    # ------------------------------------------------------------------------
-    def load_model(self, ckpt_path, device=None):
+    def load_model(self, ckpt_path):
         """Load a trained dense VectorFieldNet checkpoint for local inference.
 
         The model's grid size must match this simulator's local_size, since we
         feed the local scan map straight into it.
         """
-        import os
-        import sys
-        import torch
-
-        # The training package isn't installed; add it to the path so we can
-        # import the model definition.
-        training_dir = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "..", "training")
-        )
-        if training_dir not in sys.path:
-            sys.path.insert(0, training_dir)
-        from modules import VectorFieldNet  # pyright: ignore[reportMissingImports]
-
-        self._torch = torch
-        self.device = device or torch.device(
-            "cuda" if torch.cuda.is_available() else "cpu"
-        )
-
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         ckpt = torch.load(ckpt_path, map_location=self.device)
         config = ckpt["config"]
         model_grid = config.get("grid_size")
@@ -404,12 +378,10 @@ class GridFlowSimulator:
             self.model is None
             or self.local_map is None
             or self.goal is None
-            or self._torch is None
             or self.device is None
         ):
             return None, None
 
-        torch = self._torch
         n = self.local_size
         goal_cell = self.goal_edge_cell()
         if goal_cell is None:
@@ -427,8 +399,6 @@ class GridFlowSimulator:
             if step == 1.0:
                 field = dense.squeeze(0).cpu().numpy()
                 return field, np.arange(n)
-
-            import torch.nn.functional as F
 
             positions = np.arange(0, n - 1 + 1e-9, step)
             res = len(positions)
@@ -452,7 +422,7 @@ class GridFlowSimulator:
         field = pred.reshape(res, res, 2).cpu().numpy()
         return field, positions
 
-    def compute_local_target_flow(self, threshold=None):
+    def gt_local_flow(self, threshold=None):
         """Compute the local WaterFlow target vectors for the current local map.
 
         The source is `goal_edge_cell()` so target and prediction are aligned
@@ -466,7 +436,7 @@ class GridFlowSimulator:
         if goal_cell is None:
             return None, None
         grid = self.local_map.tolist()
-        threshold = self.target_threshold if threshold is None else threshold
+        threshold = self.wf_target_threshold if threshold is None else threshold
 
         arrival_time_map = self.wf.compute_arrival_time_map(grid, source=goal_cell)
         strength_map = self.wf.compute_strength_map(arrival_time_map, source=goal_cell)
@@ -521,9 +491,6 @@ class GridFlowSimulator:
         setup_axes(ax, n)
         overlay_obstacles_and_source(ax, local, source=goal_cell)
 
-    # ------------------------------------------------------------------------
-    # Visualization
-    # ------------------------------------------------------------------------
     def render(
         self,
         pause=0.001,
@@ -554,7 +521,6 @@ class GridFlowSimulator:
         if plot_mode not in ("overlay", "compare"):
             raise ValueError("plot_mode must be 'overlay' or 'compare'")
 
-        n = self.local_size
         local = self.local_map.tolist()
 
         # Goal in the local frame, or its projection onto the border if it is
@@ -589,7 +555,7 @@ class GridFlowSimulator:
 
         target_field = target_positions = None
         if plot_mode == "compare":
-            target_field, target_positions = self.compute_local_target_flow(
+            target_field, target_positions = self.gt_local_flow(
                 threshold=target_threshold
             )
 

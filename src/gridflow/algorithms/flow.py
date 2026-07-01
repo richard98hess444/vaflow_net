@@ -38,7 +38,7 @@ class WaterFlow(BreadthFirstSearch):
 
         return True
 
-    def compute_viscosity_map(self, grid, source=None):
+    def compute_viscosity_map(self, grid: list, source=None):
         """
         Compute viscosity map based on nearby obstacles.
 
@@ -77,7 +77,7 @@ class WaterFlow(BreadthFirstSearch):
             viscosity_map[source[0]][source[1]] = 0.0  # source has no viscosity
         return viscosity_map
 
-    def compute_arrival_time_map(self, grid, source=None):
+    def compute_arrival_time_map(self, grid: list, source=None):
         n = len(grid)
         center = (n // 2, n // 2)
         if source is not None:
@@ -106,7 +106,7 @@ class WaterFlow(BreadthFirstSearch):
 
         return arrival_time_map
 
-    def compute_strength_map(self, arrival_time_map, source=None):
+    def compute_strength_map(self, arrival_time_map: np.ndarray, source=None):
         """
         Compute strength map as the inverse of arrival time.
 
@@ -133,7 +133,7 @@ class WaterFlow(BreadthFirstSearch):
             strength_map[source[0]][source[1]] = 2.0
         return strength_map
 
-    def compute_flow_map(self, grid, source=None):
+    def compute_flow_map(self, grid: list, source=None):
         """
         Compute outward flow arrows from source using movement constraints.
 
@@ -178,7 +178,13 @@ class WaterFlow(BreadthFirstSearch):
 
         return flow_map
 
-    def compute_filtered_map(self, strength_map, viscosity_map, grid, source=None):
+    def compute_filtered_map(
+        self,
+        strength_map: np.ndarray,
+        viscosity_map: np.ndarray,
+        grid: list,
+        source=None,
+    ):
         """
         Compute filtered strength by multiplying strength and viscosity.
 
@@ -211,7 +217,9 @@ class WaterFlow(BreadthFirstSearch):
 
         return filtered
 
-    def apply_strength_threshold(self, filtered_map, grid, threshold=0.5, source=None):
+    def apply_strength_threshold(
+        self, filtered_map: np.ndarray, grid: list, threshold=0.5, source=None
+    ):
         """
         Apply threshold to filtered strength map to create soft obstacles.
 
@@ -267,7 +275,7 @@ class WaterFlow(BreadthFirstSearch):
         }
 
         return [[opposite.get(cell, cell) for cell in row] for row in flow_map]
-    
+
     def convert_flow_map_to_vectors(self, flow_map, strength_map):
         n = len(flow_map)
         vectors = np.zeros((n, n, 2))
@@ -386,7 +394,9 @@ class WaterFlow(BreadthFirstSearch):
 
         return path
 
-    def find_path_flow(self, arrival_time_map, viscosity_map, source, grid=None, lateral_bias=0.0):
+    def find_path_flow(
+        self, arrival_time_map, viscosity_map, source, grid=None, lateral_bias=0.0
+    ):
         """
         Find a path from center to source that follows the flow.
 
@@ -456,7 +466,9 @@ class WaterFlow(BreadthFirstSearch):
             # the best downhill option. Ties broken by progressing (smaller time).
             def _score(x):
                 is_lateral = arrival_time_map[x[0]][x[1]] == current_time
-                eff_viscosity = viscosity_map[x[0]][x[1]] + (lateral_bias if is_lateral else 0.0)
+                eff_viscosity = viscosity_map[x[0]][x[1]] + (
+                    lateral_bias if is_lateral else 0.0
+                )
                 return (eff_viscosity, arrival_time_map[x[0]][x[1]])
 
             best_neighbor = min(candidates, key=_score)
@@ -466,4 +478,3 @@ class WaterFlow(BreadthFirstSearch):
             path.append(current)
 
         return path
-
