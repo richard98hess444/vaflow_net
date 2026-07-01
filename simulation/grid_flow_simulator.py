@@ -83,14 +83,14 @@ class GridFlowSimulator:
     # World generation
     # ------------------------------------------------------------------------
     def _generate_world(self, size, obstacle_prob, seed):
-        """Build a `size`x`size` world from `generate_random_grid`.
+        """Build a `size`x`size` world from `generate_sparse_grid`.
 
-        `generate_random_grid` requires an odd grid size, so for an even world
+        `generate_sparse_grid` requires an odd grid size, so for an even world
         we generate one cell larger and crop back down to `size`.
         """
         gen_n = size if size % 2 == 1 else size + 1
-        grid = self.bfs.generate_random_grid(
-            n=gen_n, obstacle_prob=obstacle_prob, seed=seed
+        grid = self.wf.generate_sparse_grid(
+            n=gen_n, obstacle_prob=obstacle_prob, min_side=5, max_side=10, seed=seed
         )
         world = np.array(grid, dtype=np.int8)
         return world[:size, :size]
