@@ -13,8 +13,6 @@ both row and col is [10, 117] (i.e. < 118), which is why goals and start
 positions are constrained to "within 118x118".
 """
 
-import os
-import sys
 import random
 from typing import cast
 
@@ -25,14 +23,12 @@ import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 
 from gridflow.algorithms import WaterFlow
-from gridflow.utils import setup_axes, overlay_obstacles_and_source
-
-_TRAINING_DIR = os.path.abspath(
+from gridflow.utils import (
+    setup_axes,
+    overlay_obstacles_and_source,
     draw_vector_field,
 )
-if _TRAINING_DIR not in sys.path:
-    sys.path.insert(0, _TRAINING_DIR)
-from modules import VectorFieldNet # noqa: E402  # pyright: ignore[reportMissingImports]
+from gridflow_nn import VectorFieldNet
 
 # 8-neighbor movement deltas, keyed by an arrow / name for convenient teleop.
 DIRECTIONS = {

@@ -14,7 +14,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader, random_split
 import matplotlib.pyplot as plt
 
-from modules import VectorFieldNet
+from gridflow_nn import VectorFieldNet
 from dataloader import FlowFieldDataset
 from configs import Config
 
