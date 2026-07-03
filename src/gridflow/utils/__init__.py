@@ -16,6 +16,8 @@ from .plotting import (
     plot_thresholded_grid,
     plot_flow_on_thresholded_grid,
     plot_path_on_thresholded_grid,
+    plot_travel_time_map,
+    plot_vector_field_on_grid,
 )
 
 __all__ = [
@@ -34,4 +36,6 @@ __all__ = [
     "plot_thresholded_grid",
     "plot_flow_on_thresholded_grid",
     "plot_path_on_thresholded_grid",
+    "plot_travel_time_map",
+    "plot_vector_field_on_grid",
 ]

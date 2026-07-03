@@ -1,6 +1,6 @@
 """SimFlow - Modular water flow simulation and visualization."""
 
-from .algorithms import BreadthFirstSearch, WaterFlow, AStar
+from .algorithms import BreadthFirstSearch, WaterFlow, AStar, Eikonal
 from .utils import (
     print_grid,
     print_flow,
@@ -13,6 +13,8 @@ from .utils import (
     plot_thresholded_grid,
     plot_flow_on_thresholded_grid,
     plot_path_on_thresholded_grid,
+    plot_travel_time_map,
+    plot_vector_field_on_grid,
     overlay_obstacles_and_source,
     draw_vector_field,
     setup_axes,
@@ -22,6 +24,7 @@ __all__ = [
     "BreadthFirstSearch",
     "WaterFlow",
     "AStar",
+    "Eikonal",
     "print_grid",
     "print_flow",
     "plot_grid",
@@ -33,6 +36,8 @@ __all__ = [
     "plot_thresholded_grid",
     "plot_flow_on_thresholded_grid",
     "plot_path_on_thresholded_grid",
+    "plot_travel_time_map",
+    "plot_vector_field_on_grid",
     "overlay_obstacles_and_source",
     "draw_vector_field",
     "setup_axes",

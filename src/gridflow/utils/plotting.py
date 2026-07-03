@@ -435,3 +435,47 @@ def plot_path_on_thresholded_grid(path, thresholded_grid, source=None):
 
     plt.show()
 
+
+def plot_travel_time_map(travel_time_map, grid, source=None):
+    """Plot a continuous Eikonal travel-time (wavefront arrival) field.
+
+    Unlike ``plot_arrival_time_map`` (integer BFS hop counts), this expects a
+    real-valued field where obstacles / unreachable cells are marked ``-1``.
+    Lighter = closer to the source, darker = farther away.
+    """
+    n = len(grid)
+    reachable = [
+        travel_time_map[r][c]
+        for r in range(n)
+        for c in range(n)
+        if travel_time_map[r][c] >= 0
+    ]
+    vmax = max(reachable) if reachable else 1.0
+    plot_scalar_map(
+        travel_time_map, grid, "GnBu", 0.0, vmax, lambda v: f"{v:.1f}", source
+    )
+
+
+def plot_vector_field_on_grid(vectors, grid, source=None, color="blue"):
+    """Plot a flow/vector field over a binary grid with obstacles and source.
+
+    Reuses the shared ``draw_vector_field`` quiver primitive so the arrow logic
+    stays in one place. Arrows are drawn at cell centers.
+
+    Args:
+        vectors: (n, n, 2) array of (drow, dcol) vectors.
+        grid: 2D list where 0=free, 1=obstacle.
+        source: optional (row, col) drawn in green.
+        color: arrow color.
+    """
+    n = len(grid)
+    data = np.zeros((n, n))
+
+    fig, ax = plt.subplots()
+    fig.set_size_inches(6, 6)
+    ax.imshow(data, cmap="gray_r", interpolation="nearest", vmin=0, vmax=1)
+    setup_axes(ax, n)
+    overlay_obstacles_and_source(ax, grid, source)
+    draw_vector_field(ax, np.asarray(vectors), color=color)
+    plt.show()
+
