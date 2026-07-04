@@ -2,13 +2,12 @@ import time
 from gridflow.algorithms.flow import WaterFlow
 from gridflow.utils import (
     plot_grid,
-    plot_arrival_time_map,
+    plot_time_map,
     plot_strength_map,
     plot_viscosity_map,
     plot_filtered_map,
-    plot_flow,
-    plot_thresholded_grid,
-    plot_flow_on_thresholded_grid,
+    plot_directions,
+    plot_vector_field_on_grid,
 )
 
 
@@ -54,23 +53,21 @@ def main():
     else:
         binary_thresholded_grid[n // 2][n // 2] = 0  # ensure source is free
     flow_map_t = wf.compute_flow_map(binary_thresholded_grid, source=source)
+    vectors = wf.convert_flow_map_to_vectors(flow_map_t, strength_map)
 
     plot_grid(grid, source=source)
-    plot_arrival_time_map(arrival_time_map, grid, source=source)
+    plot_time_map(arrival_time_map, grid, source=source)
     plot_strength_map(strength_map, grid, source=source)
     plot_viscosity_map(viscosity_map, grid, source=source)
     plot_filtered_map(filtered_map, grid, source=source)
-    plot_flow(flow_map, source=source)
+    plot_directions(flow_map, source=source)
 
-    plot_thresholded_grid(thresholded_grid, source=source)
-    plot_flow_on_thresholded_grid(
-        flow_map_t, thresholded_grid, filtered_map, source=source
-    )
+    plot_grid(thresholded_grid, source=source)
+    plot_vector_field_on_grid(vectors, thresholded_grid, source=source)
 
     flow_map_r = wf.reverse_flow_map(flow_map_t)
-    plot_flow_on_thresholded_grid(
-        flow_map_r, thresholded_grid, filtered_map, source=source
-    )
+    vectors_r = wf.convert_flow_map_to_vectors(flow_map_r, strength_map)
+    plot_vector_field_on_grid(vectors_r, thresholded_grid, source=source)
 
 
 if __name__ == "__main__":

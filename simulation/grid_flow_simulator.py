@@ -26,7 +26,7 @@ from gridflow.algorithms import WaterFlow
 from gridflow.utils import (
     setup_axes,
     overlay_obstacles_and_source,
-    draw_vector_field,
+    plot_vector_field,
 )
 from gridflow_nn import VectorFieldNet
 
@@ -543,7 +543,7 @@ class GridFlowSimulator:
                 raise RuntimeError("Overlay render axis was not initialized")
             self._draw_local_map(self._ax, local, goal_cell)
             if flow_shown:
-                draw_vector_field(self._ax, pred_field, pred_positions)
+                plot_vector_field(self._ax, pred_field, pred_positions)
         else:
             if self._axes is None:
                 raise RuntimeError("Compare render axes were not initialized")
@@ -552,13 +552,13 @@ class GridFlowSimulator:
             self._draw_local_map(ax_pred, local, goal_cell)
 
             if target_field is not None:
-                draw_vector_field(ax_gt, target_field, target_positions)
+                plot_vector_field(ax_gt, target_field, target_positions)
                 ax_gt.set_title("Ground truth")
             else:
                 ax_gt.set_title("Ground truth (unavailable)")
 
             if flow_shown:
-                draw_vector_field(ax_pred, pred_field, pred_positions)
+                plot_vector_field(ax_pred, pred_field, pred_positions)
                 ax_pred.set_title("Prediction")
             else:
                 ax_pred.set_title("Prediction (no model)")
