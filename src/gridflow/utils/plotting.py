@@ -106,7 +106,7 @@ def plot_grid(grid: list[list[int]], source=None):
     n = len(grid)
     ax = _create_grid_axes(n)
     overlay_obstacles_and_source(ax, grid, source)
-    _overlay_center_and_source(ax, n, source)
+    overlay_thresholded_obstacles(ax, grid)
     plt.show()
 
 
