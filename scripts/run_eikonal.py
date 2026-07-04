@@ -39,18 +39,18 @@ def main():
 
     start_time = time.time()
 
-    travel_time = eik.compute_travel_time_map(grid, source=source)
-    display_map = eik.to_display_map(travel_time, grid)
-    vectors = eik.compute_gradient_field(travel_time, grid)
-    path = eik.find_path(travel_time, source=source)
+    arrival_time_map = eik.compute_arrival_time_map(grid, source=source)
+    arr_time_display_map = eik.to_display_map(arrival_time_map, grid)
+    gradient_map = eik.compute_gradient_map(arrival_time_map, grid)
+    path = eik.find_path(arrival_time_map, source=source)
 
     elapsed = time.time() - start_time
     print(f"Eikonal (FMM) computation time: {elapsed:.4f} seconds")
     print(f"Path length (cells): {len(path)}")
 
     plot_grid(grid, source=source)
-    plot_time_map(display_map, grid, source=source)
-    plot_vector_field_on_grid(vectors, grid, source=source)
+    plot_time_map(arr_time_display_map, grid, source=source)
+    plot_vector_field_on_grid(gradient_map, grid, source=source)
     plot_path_on_thresholded_grid(path, grid, source=source)
 
 

@@ -25,7 +25,6 @@ Inherits :class:`BreadthFirstSearch` only to reuse ``generate_random_grid`` and
 
 import heapq
 import math
-
 import numpy as np
 
 from .bfs import BreadthFirstSearch
@@ -67,7 +66,9 @@ class Eikonal(BreadthFirstSearch):
                     speed[r][c] = 0.0
         return speed
 
-    def _solve_quadratic(self, T, speed, r, c, n):
+    def _solve_quadratic(
+        self, T: np.ndarray, speed: np.ndarray, r: int, c: int, n: int
+    ) -> float:
         """Godunov upwind update for a single cell.
 
         Solves ``(T - Tx)^2 + (T - Ty)^2 = (h / f)^2`` using only the smaller
@@ -114,13 +115,13 @@ class Eikonal(BreadthFirstSearch):
         disc = 2.0 * tau * tau - (a - b) ** 2
         return (a + b + math.sqrt(disc)) / 2.0
 
-    def compute_travel_time_map(
+    def compute_arrival_time_map(
         self,
         grid: list[list[int]],
         source: tuple[int, int] = None,
         speed_map: np.ndarray = None,
     ) -> np.ndarray:
-        """Solve the Eikonal equation and return the travel-time field.
+        """Solve the Eikonal equation and return the arrival-time field.
 
         Args:
             grid: 2D list where 0=free, 1=obstacle.
@@ -170,7 +171,9 @@ class Eikonal(BreadthFirstSearch):
 
         return T
 
-    def to_display_map(self, travel_time_map, grid):
+    def to_display_map(
+        self, travel_time_map: np.ndarray, grid: list[list[int]]
+    ) -> np.ndarray:
         """Convert an ``inf``-padded travel-time field to a plottable map.
 
         Obstacles and unreachable cells become ``-1`` so they render as empty,
@@ -184,7 +187,9 @@ class Eikonal(BreadthFirstSearch):
                     out[r][c] = -1.0
         return out
 
-    def compute_gradient_field(self, travel_time_map, grid):
+    def compute_gradient_map(
+        self, travel_time_map: np.ndarray, grid: list[list[int]]
+    ) -> np.ndarray:
         """Compute the descent (flow) direction ``-grad T / |grad T|``.
 
         The wavefront normal is ``grad T``; moving *down* the field (``-grad T``)
@@ -241,7 +246,12 @@ class Eikonal(BreadthFirstSearch):
                     vectors[r][c][1] = -dcol / norm
         return vectors
 
-    def find_path(self, travel_time_map, source=None, start=None):
+    def find_path(
+        self,
+        travel_time_map: np.ndarray,
+        source: tuple[int, int] = None,
+        start: tuple[int, int] = None,
+    ) -> list[tuple[int, int]]:
         """Trace a route by steepest descent on the travel-time field.
 
         Starting from ``start`` (the robot/center by default), repeatedly step
