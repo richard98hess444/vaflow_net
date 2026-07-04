@@ -215,22 +215,22 @@ class Eikonal(BreadthFirstSearch):
                 if not valid(r, c):
                     continue
 
-                up, dn = valid(r - 1, c), valid(r + 1, c)
-                if up and dn:
+                can_up, can_dn = valid(r - 1, c), valid(r + 1, c)
+                if can_up and can_dn:
                     drow = (T[r + 1][c] - T[r - 1][c]) / 2.0
-                elif dn:
+                elif can_dn:
                     drow = T[r + 1][c] - T[r][c]
-                elif up:
+                elif can_up:
                     drow = T[r][c] - T[r - 1][c]
                 else:
                     drow = 0.0
 
-                lf, rt = valid(r, c - 1), valid(r, c + 1)
-                if lf and rt:
+                can_lf, can_rt = valid(r, c - 1), valid(r, c + 1)
+                if can_lf and can_rt:
                     dcol = (T[r][c + 1] - T[r][c - 1]) / 2.0
-                elif rt:
+                elif can_rt:
                     dcol = T[r][c + 1] - T[r][c]
-                elif lf:
+                elif can_lf:
                     dcol = T[r][c] - T[r][c - 1]
                 else:
                     dcol = 0.0
