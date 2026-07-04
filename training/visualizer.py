@@ -11,11 +11,11 @@ import numpy as np
 from gridflow.utils.plotting import (
     setup_axes,
     overlay_obstacles_and_source,
-    draw_vector_field,
+    plot_vector_field,
 )
 
 
-def plot_vector_field(vectors, grid, goal=None, ax=None, title=None, positions=None):
+def vector_field_plotter(vectors, grid, goal=None, ax=None, title=None, positions=None):
     """Draw a single vector field as a quiver plot over the grid.
 
     Args:
@@ -35,7 +35,7 @@ def plot_vector_field(vectors, grid, goal=None, ax=None, title=None, positions=N
         positions = np.arange(n)
 
     # Quiver arrows (shared primitive) + pixel-style grid and obstacle overlay.
-    draw_vector_field(ax, vectors, positions=positions)
+    plot_vector_field(ax, vectors, positions=positions)
     setup_axes(ax, n)
     overlay_obstacles_and_source(ax, grid, source=goal)
 
@@ -64,8 +64,8 @@ def plot_prediction_vs_target(
     """
     fig, axes = plt.subplots(1, 2, figsize=(12, 6))
 
-    plot_vector_field(target_field, grid, goal=goal, ax=axes[0], title="Ground truth")
-    plot_vector_field(
+    vector_field_plotter(target_field, grid, goal=goal, ax=axes[0], title="Ground truth")
+    vector_field_plotter(
         pred_field,
         grid,
         goal=goal,

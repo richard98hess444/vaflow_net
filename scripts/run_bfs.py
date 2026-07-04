@@ -1,7 +1,8 @@
 """Main script for BFS algorithm demonstration."""
 
 from gridflow.algorithms import BreadthFirstSearch
-from gridflow.utils import print_grid, print_flow, plot_grid, plot_flow
+from gridflow.utils import print_grid, print_flow, plot_grid, plot_directions
+
 
 def main():
     """Run BFS algorithm on a sample grid."""
@@ -30,7 +31,7 @@ def main():
     plot_grid(grid)
 
     print("Plotting flow...")
-    plot_flow(flow)
+    plot_directions(flow)
 
 
 if __name__ == "__main__":

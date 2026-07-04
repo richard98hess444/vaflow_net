@@ -17,7 +17,7 @@ import time
 from gridflow.algorithms import Eikonal
 from gridflow.utils import (
     plot_grid,
-    plot_travel_time_map,
+    plot_time_map,
     plot_vector_field_on_grid,
     plot_path_on_thresholded_grid,
 )
@@ -49,7 +49,7 @@ def main():
     print(f"Path length (cells): {len(path)}")
 
     plot_grid(grid, source=source)
-    plot_travel_time_map(display_map, grid, source=source)
+    plot_time_map(display_map, grid, source=source)
     plot_vector_field_on_grid(vectors, grid, source=source)
     plot_path_on_thresholded_grid(path, grid, source=source)
 
