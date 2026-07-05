@@ -43,6 +43,7 @@ class FlowSimRunner:
         goal_seed=6,
         flow_step=0.5,
         flow_plot_mode="compare",
+        flow_method="eikonal",
     ):
         self.model_path = model_path
         self.start_pos = start_pos
@@ -51,6 +52,8 @@ class FlowSimRunner:
         self.flow_step = flow_step
         # Render mode: "overlay" (single map) or "compare" (ground truth vs pred).
         self.flow_plot_mode = flow_plot_mode
+        # Flow computation method: "bfs" or "eikonal".
+        self.flow_method = flow_method
 
         self.sim = GridFlowSimulator(
             world_size=world_size,
@@ -88,7 +91,12 @@ class FlowSimRunner:
             pred_vec = pred_field[center, center]
             print(f"  pred flow (drow, dcol): ({pred_vec[0]:.4f}, {pred_vec[1]:.4f})")
 
-        target_field, _ = sim.gt_local_flow()
+        target_field = None
+        if self.flow_method == "bfs":
+            target_field, _ = sim.bfs_gt_local_flow()
+        elif self.flow_method == "eikonal":
+            target_field, _ = sim.eik_gt_local_flow()
+        
         if target_field is not None:
             target_vec = target_field[center, center]
             print(f"  gt flow (drow, dcol): ({target_vec[0]:.4f}, {target_vec[1]:.4f})")

@@ -22,7 +22,7 @@ import torch.nn.functional as F
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 
-from gridflow.algorithms import WaterFlow
+from gridflow.algorithms import WaterFlow, Eikonal, SignedDistanceField
 from gridflow.utils import (
     setup_axes,
     overlay_obstacles_and_source,
@@ -69,6 +69,9 @@ class GridFlowSimulator:
         self.wf = WaterFlow()
         self.wf_target_threshold = 0.05
         self.world = self._generate_world(world_size, obstacle_prob, grid_seed)
+
+        self.eik = Eikonal()
+        self.sdf = SignedDistanceField()
 
         self.robot_pos = None  # (row, col)
         self.goal = None  # (row, col)
@@ -418,7 +421,7 @@ class GridFlowSimulator:
         field = pred.reshape(res, res, 2).cpu().numpy()
         return field, positions
 
-    def gt_local_flow(self, threshold=None):
+    def bfs_gt_local_flow(self, threshold=None):
         """Compute the local WaterFlow target vectors for the current local map.
 
         The source is `goal_edge_cell()` so target and prediction are aligned
@@ -457,6 +460,39 @@ class GridFlowSimulator:
 
         return target_vectors.astype(np.float32), np.arange(n)
 
+    def eik_gt_local_flow(self):
+        """Compute the ground-truth guidance field for one sample.
+
+        The target combines the Eikonal shortest-path gradient (attraction
+        toward the goal) with the SDF artificial-potential-field repulsion
+        (pushing away from obstacles); the goal cell is zeroed.
+
+        Returns:
+            target_vectors: np.ndarray of shape (n, n, 2) of (drow, dcol)
+                guidance vectors, dtype float32.
+        """
+
+        if self.local_map is None or self.goal is None:
+            return None, None
+
+        n = self.local_size
+        goal_cell = self.goal_edge_cell()
+        if goal_cell is None:
+            return None, None
+        grid = self.local_map.tolist()
+        eik_arr_time_map = self.eik.compute_arrival_time_map(grid, source=goal_cell)
+        eik_gradient_map = self.eik.compute_gradient_map(eik_arr_time_map, grid)
+
+        sdf_map = self.sdf.compute_sdf_map(grid)
+        repulsive_force_map = self.sdf.compute_repulsive_force_map(
+            grid, sdf=sdf_map, influence=3.0, gain=1.0
+        )
+
+        final_map = eik_gradient_map + repulsive_force_map
+        final_map[goal_cell[0]][goal_cell[1]] = np.array([0.0, 0.0])
+
+        return final_map.astype(np.float32), np.arange(n)
+
     def _draw_local_map(self, ax, local, goal_cell):
         n = self.local_size
         ax.clear()
@@ -476,6 +512,7 @@ class GridFlowSimulator:
         show_flow=True,
         step=1.0,
         plot_mode="overlay",
+        method="eikonal",
         target_threshold=None,
     ):
         """Show the current local scan map, styled like `plot_grid`.
@@ -534,9 +571,12 @@ class GridFlowSimulator:
 
         target_field = target_positions = None
         if plot_mode == "compare":
-            target_field, target_positions = self.gt_local_flow(
-                threshold=target_threshold
-            )
+            if method == "bfs":
+                target_field, target_positions = self.bfs_gt_local_flow(
+                    threshold=target_threshold
+                )
+            elif method == "eikonal":
+                target_field, target_positions = self.eik_gt_local_flow()
 
         if plot_mode == "overlay":
             if self._ax is None:
