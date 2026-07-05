@@ -332,7 +332,7 @@ def plot_vector_field(ax: Axes, vectors, positions=None, color="blue"):
         v,
         angles="xy",
         scale_units="xy",
-        scale=1.0,
+        scale=1.5,
         color=color,
         zorder=4,
     )
