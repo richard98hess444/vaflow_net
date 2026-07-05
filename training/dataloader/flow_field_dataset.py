@@ -17,7 +17,7 @@ class FlowFieldDataset(Dataset):
         rng = np.random.default_rng(seed)
 
         for i in range(num_samples):
-            grid = eik.generate_random_grid(
+            grid = eik.generate_sparse_grid(
                 n=grid_size,
                 obstacle_prob=obstacle_prob,
                 seed=i if abs_seed is None else abs_seed,
