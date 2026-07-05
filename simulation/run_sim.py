@@ -104,9 +104,28 @@ class FlowSimRunner:
         print(f"  reached goal: {sim.reached_goal()}")
 
     def render(self):
-        self.sim.render(step=self.flow_step, plot_mode=self.flow_plot_mode)
+        self.sim.render(step=self.flow_step, plot_mode=self.flow_plot_mode, method=self.flow_method)
+        
+    def ang_2_cmd(self, degree):
+        """Convert a flow angle (degrees) to a teleop command string."""
+        if degree < -157.5 or degree >= 157.5:
+            return "a"
+        elif -157.5 <= degree < -112.5:
+            return "z"
+        elif -112.5 <= degree < -67.5:
+            return "s"
+        elif -67.5 <= degree < -22.5:
+            return "c"
+        elif -22.5 <= degree < 22.5:
+            return "d"
+        elif 22.5 <= degree < 67.5:
+            return "e"
+        elif 67.5 <= degree < 112.5:
+            return "w"
+        elif 112.5 <= degree < 157.5:
+            return "q"
 
-    def run(self):
+    def run_teleopertation(self):
         """Drive the robot from the keyboard (WASD + QEZC for diagonals)."""
         self.setup()
 
@@ -140,6 +159,43 @@ class FlowSimRunner:
                 self.sim.keep_open()
                 break
 
+    def run_autonomous(self):
+        """Run the robot autonomously to the goal using the learned flow model."""
+        self.setup()
+
+        print("Autonomous mode: robot will follow the predicted flow field.")
+        self.print_status()
+        self.render()
+        
+        print("Press Enter to start autonomous navigation, or 'x' to quit.")
+        cmd = input("start> ").strip().lower()
+        if cmd in ("x", "quit", "exit"):
+            return
+
+        while not self.sim.reached_goal():
+            moved_any = False
+            pred_field, _ = self.sim.predict_local_flow(step=1.0)
+            if pred_field is not None:
+                center = self.sim.local_size // 2
+                pred_vec = pred_field[center, center]
+                degree = np.arctan2(-pred_vec[0], pred_vec[1]) * 180 / np.pi
+                cmd = self.ang_2_cmd(degree)
+                if self.sim.move_dir(self.KEYS[cmd]):
+                    moved_any = True
+                    print(f"Moved '{cmd}' (angle: {degree:.4f} deg)")
+                else:
+                    print(f"Blocked when trying to move '{cmd}' (angle: {degree:.4f} deg)")
+
+            self.render()  # show the local map after each cell of movement
+            if not moved_any:
+                print("  (blocked by obstacle or world edge)")
+
+            self.print_status()
+
+        print("\nGoal reached! Close the window or press 'q' to exit.")
+        self.sim.keep_open()
+
+def main(argv=None):
 
 if __name__ == "__main__":
     FlowSimRunner().run()
