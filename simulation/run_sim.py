@@ -9,7 +9,9 @@ Run from the repo root (with the venv active):
     python simulation/run_sim.py
 """
 
+import argparse
 import os
+import numpy as np
 
 from grid_flow_simulator import GridFlowSimulator
 
@@ -79,17 +81,20 @@ class FlowSimRunner:
         robot_r, robot_c = sim.robot_pos
         goal_r, goal_c = sim.goal
         local_goal = sim.goal_in_local_frame()
-        print(f"  robot at ({robot_r}, {robot_c}) | goal at ({goal_r}, {goal_c})")
+        print(f"  Robot: ({robot_r}, {robot_c}) | Goal: ({goal_r}, {goal_c})")
         if local_goal is not None:
-            print(f"  goal visible in local map at {local_goal}")
+            print(f"  Glocal goal visible in local map at {local_goal}")
         else:
-            print(f"  goal projected to local edge at {sim.goal_edge_cell()}")
+            print(f"  Local goal: {sim.goal_edge_cell()}")
 
         center = sim.local_size // 2
         pred_field, _ = sim.predict_local_flow(step=1.0)
         if pred_field is not None:
             pred_vec = pred_field[center, center]
-            print(f"  pred flow (drow, dcol): ({pred_vec[0]:.4f}, {pred_vec[1]:.4f})")
+            degree = np.arctan2(-pred_vec[0], pred_vec[1]) * 180 / np.pi
+            cmd = self.ang_2_cmd(degree)
+            print(f"  Pred flow cmd: '{cmd}' (angle: {degree:.4f} deg)")
+            print(f"  Pred flow (drow, dcol): ({pred_vec[0]:.4f}, {pred_vec[1]:.4f})")
 
         target_field = None
         if self.flow_method == "bfs":
@@ -99,9 +104,9 @@ class FlowSimRunner:
         
         if target_field is not None:
             target_vec = target_field[center, center]
-            print(f"  gt flow (drow, dcol): ({target_vec[0]:.4f}, {target_vec[1]:.4f})")
+            print(f"  Gt   flow (drow, dcol): ({target_vec[0]:.4f}, {target_vec[1]:.4f})")
 
-        print(f"  reached goal: {sim.reached_goal()}")
+        print(f"  Reached goal: {sim.reached_goal()}")
 
     def render(self):
         self.sim.render(step=self.flow_step, plot_mode=self.flow_plot_mode, method=self.flow_method)
@@ -196,6 +201,46 @@ class FlowSimRunner:
         self.sim.keep_open()
 
 def main(argv=None):
+    """Parse CLI arguments and launch the simulation in the requested mode."""
+    parser = argparse.ArgumentParser(
+        description="Run the GridFlow simulation (autonomous or teleoperated)."
+    )
+    parser.add_argument(
+        "--model-path",
+        default=MODEL_PATH,
+        help="Path to the flow model checkpoint (default: models/best.pt).",
+    )
+    parser.add_argument(
+        "--flow-plot-mode",
+        default="compare",
+        choices=["overlay", "compare"],
+        help="Render mode: single overlay or ground-truth vs prediction (default: compare).",
+    )
+    parser.add_argument(
+        "--flow-method",
+        default="eikonal",
+        choices=["bfs", "eikonal"],
+        help="Ground-truth flow method (default: eikonal).",
+    )
+    parser.add_argument(
+        "--mode",
+        default="auto",
+        help="'auto' for autonomous navigation, 'teleo' for keyboard teleop "
+        "(default: auto; any other value falls back to auto).",
+    )
+    cli = parser.parse_args(argv)
+
+    runner = FlowSimRunner(
+        model_path=cli.model_path,
+        flow_plot_mode=cli.flow_plot_mode,
+        flow_method=cli.flow_method,
+    )
+
+    if cli.mode == "teleo":
+        runner.run_teleopertation()
+    else:  # "auto" or any other value falls back to autonomous
+        runner.run_autonomous()
+
 
 if __name__ == "__main__":
-    FlowSimRunner().run()
+    main()
