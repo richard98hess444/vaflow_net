@@ -1,6 +1,12 @@
 """SimFlow - Modular water flow simulation and visualization."""
 
-from .algorithms import BreadthFirstSearch, WaterFlow, AStar, Eikonal
+from .algorithms import (
+    BreadthFirstSearch,
+    WaterFlow,
+    AStar,
+    Eikonal,
+    SignedDistanceField,
+)
 from .utils import (
     print_grid,
     print_flow,
@@ -22,6 +28,7 @@ __all__ = [
     "WaterFlow",
     "AStar",
     "Eikonal",
+    "SignedDistanceField",
     "print_grid",
     "print_flow",
     "plot_grid",
