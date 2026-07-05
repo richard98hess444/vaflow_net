@@ -114,7 +114,6 @@ class Trainer:
             num_samples=config.num_samples,
             grid_size=config.grid_size,
             obstacle_prob=config.obstacle_prob,
-            threshold=config.threshold,
             seed=config.seed,
         )
 
