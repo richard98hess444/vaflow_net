@@ -6,6 +6,7 @@ from .algorithms import (
     AStar,
     Eikonal,
     SignedDistanceField,
+    VectorFieldGuidance,
 )
 from .utils import (
     print_grid,
@@ -29,6 +30,7 @@ __all__ = [
     "AStar",
     "Eikonal",
     "SignedDistanceField",
+    "VectorFieldGuidance",
     "print_grid",
     "print_flow",
     "plot_grid",

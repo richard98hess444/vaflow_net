@@ -22,7 +22,7 @@ import torch.nn.functional as F
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 
-from gridflow.algorithms import WaterFlow, Eikonal, SignedDistanceField
+from gridflow.algorithms import WaterFlow, VectorFieldGuidance
 from gridflow.utils import (
     setup_axes,
     overlay_obstacles_and_source,
@@ -70,8 +70,7 @@ class GridFlowSimulator:
         self.wf_target_threshold = 0.05
         self.world = self._generate_world(world_size, obstacle_prob, grid_seed)
 
-        self.eik = Eikonal()
-        self.sdf = SignedDistanceField()
+        self.guide = VectorFieldGuidance()
 
         self.robot_pos = None  # (row, col)
         self.goal = None  # (row, col)
@@ -437,28 +436,9 @@ class GridFlowSimulator:
         grid = self.local_map.tolist()
         threshold = self.wf_target_threshold if threshold is None else threshold
 
-        arrival_time_map = self.wf.compute_arrival_time_map(grid, source=goal_cell)
-        strength_map = self.wf.compute_strength_map(arrival_time_map, source=goal_cell)
-        viscosity_map = self.wf.compute_viscosity_map(grid, source=goal_cell)
-        filtered_map = self.wf.compute_filtered_map(
-            strength_map, viscosity_map, grid, source=goal_cell
-        )
+        final_map = self.guide.bfs_method(grid, goal_cell, threshold=threshold)
 
-        thresholded_grid = self.wf.apply_strength_threshold(
-            filtered_map, grid, threshold=threshold, source=goal_cell
-        )
-
-        binary_thresholded_grid = [
-            [1 if thresholded_grid[r][c] != 0 else 0 for c in range(n)]
-            for r in range(n)
-        ]
-        binary_thresholded_grid[goal_cell[0]][goal_cell[1]] = 0
-
-        flow_map_t = self.wf.compute_flow_map(binary_thresholded_grid, source=goal_cell)
-        flow_map_r = self.wf.reverse_flow_map(flow_map_t)
-        target_vectors = self.wf.convert_flow_map_to_vectors(flow_map_r, strength_map)
-
-        return target_vectors.astype(np.float32), np.arange(n)
+        return final_map.astype(np.float32), np.arange(n)
 
     def eik_gt_local_flow(self):
         """Compute the ground-truth guidance field for one sample.
@@ -480,18 +460,10 @@ class GridFlowSimulator:
         if goal_cell is None:
             return None, None
         grid = self.local_map.tolist()
-        eik_arr_time_map = self.eik.compute_arrival_time_map(grid, source=goal_cell)
-        eik_gradient_map = self.eik.compute_gradient_map(eik_arr_time_map, grid)
 
-        sdf_map = self.sdf.compute_sdf_map(grid)
-        repulsive_force_map = self.sdf.compute_repulsive_force_map(
-            grid, sdf=sdf_map, influence=3.0, gain=1.0
-        )
+        final_map = self.guide.eik_method(grid, goal_cell)
 
-        final_map = eik_gradient_map + repulsive_force_map
-        final_map[goal_cell[0]][goal_cell[1]] = np.array([0.0, 0.0])
-
-        return final_map.astype(np.float32), np.arange(n)
+        return final_map, np.arange(n)
 
     def _draw_local_map(self, ax, local, goal_cell):
         n = self.local_size
