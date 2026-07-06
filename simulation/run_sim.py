@@ -14,6 +14,7 @@ import os
 import numpy as np
 
 from grid_flow_simulator import GridFlowSimulator
+from utils import VideoRecorder
 
 # Pre-trained dense flow model used to predict the local flow field.
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "models", "best.pt")
@@ -46,6 +47,11 @@ class FlowSimRunner:
         flow_step=0.5,
         flow_plot_mode="compare",
         flow_method="eikonal",
+        save=False,
+        save_dir=None,
+        video_path=None,
+        fps=4,
+        max_steps=100,
     ):
         self.model_path = model_path
         self.start_pos = start_pos
@@ -56,6 +62,18 @@ class FlowSimRunner:
         self.flow_plot_mode = flow_plot_mode
         # Flow computation method: "bfs" or "eikonal".
         self.flow_method = flow_method
+
+        # Frame/video saving. When `save` is True every rendered frame is written
+        # as a numbered PNG and assembled into an MP4 when the run finishes.
+        self.save = save
+        self.max_steps = max_steps
+        default_dir = os.path.join(os.path.dirname(__file__), "renders")
+        self.save_dir = save_dir or default_dir
+        self.recorder = (
+            VideoRecorder(self.save_dir, video_path=video_path, fps=fps)
+            if save
+            else None
+        )
 
         self.sim = GridFlowSimulator(
             world_size=world_size,
@@ -70,6 +88,8 @@ class FlowSimRunner:
 
         print(f"Loading flow model from: {os.path.abspath(self.model_path)}")
         self.sim.load_model(self.model_path)
+        if self.recorder is not None:
+            self.recorder.initialize()
 
     def print_status(self):
         sim = self.sim
@@ -109,9 +129,17 @@ class FlowSimRunner:
         print(f"  Reached goal: {sim.reached_goal()}")
 
     def render(self):
-        self.sim.render(step=self.flow_step, plot_mode=self.flow_plot_mode, method=self.flow_method)
-        
-    def ang_2_cmd(self, degree):
+        self.sim.render(
+            step=self.flow_step, plot_mode=self.flow_plot_mode, method=self.flow_method
+        )
+        if self.recorder is not None:
+            self.recorder.save_frame(self.sim.save_frame)
+
+    def _finalize_save(self):
+        """Assemble the saved frames into the output video (no-op if not saving)."""
+        if self.recorder is not None:
+            self.recorder.finalize()
+
         """Convert a flow angle (degrees) to a teleop command string."""
         if degree < -157.5 or degree >= 157.5:
             return "a"
@@ -142,6 +170,7 @@ class FlowSimRunner:
         while True:
             cmd = input("move> ").strip().lower()
             if cmd in ("x", "quit", "exit"):
+                self._finalize_save()
                 break
             if not cmd:
                 continue
@@ -161,6 +190,7 @@ class FlowSimRunner:
             self.print_status()
             if self.sim.reached_goal():
                 print("\nGoal reached! Close the window or press 'q' to exit.")
+                self._finalize_save()
                 self.sim.keep_open()
                 break
 
@@ -171,13 +201,21 @@ class FlowSimRunner:
         print("Autonomous mode: robot will follow the predicted flow field.")
         self.print_status()
         self.render()
-        
+
         print("Press Enter to start autonomous navigation, or 'x' to quit.")
         cmd = input("start> ").strip().lower()
         if cmd in ("x", "quit", "exit"):
             return
 
+        steps = 0
         while not self.sim.reached_goal():
+            if steps >= self.max_steps:
+                print(
+                    f"Stopped after {self.max_steps} steps without reaching the goal."
+                )
+                break
+            steps += 1
+
             moved_any = False
             pred_field, _ = self.sim.predict_local_flow(step=1.0)
             if pred_field is not None:
@@ -197,7 +235,7 @@ class FlowSimRunner:
 
             self.print_status()
 
-        print("\nGoal reached! Close the window or press 'q' to exit.")
+        self._finalize_save()
         self.sim.keep_open()
 
 def main(argv=None):
@@ -228,12 +266,37 @@ def main(argv=None):
         help="'auto' for autonomous navigation, 'teleo' for keyboard teleop "
         "(default: auto; any other value falls back to auto).",
     )
+    parser.add_argument(
+        "--save",
+        action="store_true",
+        help="Save each rendered frame as a PNG and assemble them into an MP4.",
+    )
+    parser.add_argument(
+        "--save-dir",
+        default=None,
+        help="Directory for saved frames and video (default: simulation/renders).",
+    )
+    parser.add_argument(
+        "--video-path",
+        default=None,
+        help="Output MP4 path (default: <save-dir>/simulation.mp4).",
+    )
+    parser.add_argument(
+        "--fps",
+        type=int,
+        default=4,
+        help="Frames per second for the output video (default: 4).",
+    )
     cli = parser.parse_args(argv)
 
     runner = FlowSimRunner(
         model_path=cli.model_path,
         flow_plot_mode=cli.flow_plot_mode,
         flow_method=cli.flow_method,
+        save=cli.save,
+        save_dir=cli.save_dir,
+        video_path=cli.video_path,
+        fps=cli.fps,
     )
 
     if cli.mode == "teleo":

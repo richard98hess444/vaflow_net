@@ -61,6 +61,10 @@ models/
 *.pth
 *.ckpt
 
+# Simulation render frames / videos
+simulation/renders/
+*.mp4
+
 # Jupyter Notebook
 .ipynb_checkpoints/
 

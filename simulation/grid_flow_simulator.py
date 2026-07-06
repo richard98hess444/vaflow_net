@@ -592,6 +592,17 @@ class GridFlowSimulator:
         fig.canvas.draw_idle()
         plt.pause(pause)
 
+    def save_frame(self, path, dpi=100):
+        """Save the current rendered figure to `path` as a PNG image.
+
+        Uses a fixed dpi together with the figure's fixed figsize so every saved
+        frame has identical pixel dimensions, which video encoders require. Call
+        this right after :meth:`render`.
+        """
+        if self._fig is None or not plt.fignum_exists(self._fig.number):
+            raise RuntimeError("No figure to save yet; call render() first.")
+        self._fig.savefig(path, dpi=dpi)
+
     def keep_open(self):
         """Block until the user closes the figure (press 'q').
 
