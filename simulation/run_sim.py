@@ -140,6 +140,8 @@ class FlowSimRunner:
         if self.recorder is not None:
             self.recorder.finalize()
 
+    @staticmethod
+    def ang_2_cmd(degree):
         """Convert a flow angle (degrees) to a teleop command string."""
         if degree < -157.5 or degree >= 157.5:
             return "a"

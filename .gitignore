@@ -64,6 +64,7 @@ models/
 # Simulation render frames / videos
 simulation/renders/
 *.mp4
+*.csv
 
 # Jupyter Notebook
 .ipynb_checkpoints/
