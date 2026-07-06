@@ -103,7 +103,7 @@ class FlowSimRunner:
         local_goal = sim.goal_in_local_frame()
         print(f"  Robot: ({robot_r}, {robot_c}) | Goal: ({goal_r}, {goal_c})")
         if local_goal is not None:
-            print(f"  Glocal goal visible in local map at {local_goal}")
+            print(f"  Global goal visible in local map at {local_goal}")
         else:
             print(f"  Local goal: {sim.goal_edge_cell()}")
 
@@ -121,10 +121,12 @@ class FlowSimRunner:
             target_field, _ = sim.bfs_gt_local_flow()
         elif self.flow_method == "eikonal":
             target_field, _ = sim.eik_gt_local_flow()
-        
+
         if target_field is not None:
             target_vec = target_field[center, center]
-            print(f"  Gt   flow (drow, dcol): ({target_vec[0]:.4f}, {target_vec[1]:.4f})")
+            print(
+                f"  Gt   flow (drow, dcol): ({target_vec[0]:.4f}, {target_vec[1]:.4f})"
+            )
 
         print(f"  Reached goal: {sim.reached_goal()}")
 
@@ -229,7 +231,9 @@ class FlowSimRunner:
                     moved_any = True
                     print(f"Moved '{cmd}' (angle: {degree:.4f} deg)")
                 else:
-                    print(f"Blocked when trying to move '{cmd}' (angle: {degree:.4f} deg)")
+                    print(
+                        f"Blocked when trying to move '{cmd}' (angle: {degree:.4f} deg)"
+                    )
 
             self.render()  # show the local map after each cell of movement
             if not moved_any:
@@ -237,8 +241,13 @@ class FlowSimRunner:
 
             self.print_status()
 
+        if self.sim.reached_goal():
+            print("\nGoal reached! Close the window or press 'q' to exit.")
+        else:
+            print("\nStopped. Close the window or press 'q' to exit.")
         self._finalize_save()
         self.sim.keep_open()
+
 
 def main(argv=None):
     """Parse CLI arguments and launch the simulation in the requested mode."""

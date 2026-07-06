@@ -587,7 +587,9 @@ class GridFlowSimulator:
             self._ax.set_title(title)
         else:
             fig.suptitle(title)
-            fig.tight_layout()
+            fig.subplots_adjust(
+                left=0.05, right=0.95, bottom=0.05, top=0.88, wspace=0.15
+            )
 
         fig.canvas.draw_idle()
         plt.pause(pause)
