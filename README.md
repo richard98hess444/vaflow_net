@@ -22,11 +22,10 @@ python scripts/run_flow.py
 
 - `pyproject.toml`: Packaging and dependency configuration
 - `src/gridflow/`: The installable library (lean: numpy + matplotlib only)
-  - `src/gridflow/algorithms/`: BFS, A*, and water-flow algorithms
+  - `src/gridflow/algorithms/`: BFS, A*, water-flow, Eikonal, and SDF algorithms
   - `src/gridflow/utils/`: Plotting and utility helpers
 - `scripts/`: Runnable library demos (outside the package)
 - `training/`: Neural vector-field training project (outside the package; needs torch)
-- `notebooks/`: Jupyter notebooks
 - `models/`: Saved model checkpoints (`.pt`)
 
 ## Requirements
@@ -43,9 +42,11 @@ python scripts/run_flow.py
 python scripts/run_bfs.py
 python scripts/run_flow.py
 python scripts/run_astar.py
+python scripts/run_eikonal.py
+python scripts/run_sdf.py
 ```
 
-### Training project
+### Training
 
 Run from the repo root:
 
@@ -53,6 +54,19 @@ Run from the repo root:
 python training/run_trainer.py     # train + visualize, saves a .pt model
 python training/run_visualizer.py    # load latest .pt and visualize
 python training/run_visualizer.py models/your_checkpoint.pt    # visualize a pre-trained model
+```
+
+### Simulation
+```bash
+python simulation/run_sim.py -h  # shows all the arguments
+python simulation/run_sim.py --model-path models/your_checkpoint.pt --save  # run autonomous mode and save a video
+python simulation/run_sim.py --model-path models/your_checkpoint.pt --mode teleo  # run teleoperation
+```
+
+### Success rate recording
+```bash
+python simulation/run_success_rate.py -h  # shows all the arguments
+python simulation/run_success_rate.py --model-path models/your_checkpoint.pt
 ```
 
 ### Known caveat: diagonal corner behavior
