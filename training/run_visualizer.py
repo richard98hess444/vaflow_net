@@ -59,7 +59,6 @@ def main():
         num_samples=num_examples,
         grid_size=grid_size,
         obstacle_prob=0.2,
-        threshold=0.05,
         seed=1,  # different seed -> grids the model didn't train on
         abs_seed=1,  # ensure reproducibility of the random grids
     )
