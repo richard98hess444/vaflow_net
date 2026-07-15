@@ -3,6 +3,8 @@
 import random
 from collections import deque
 
+import numpy as np
+
 # 8-neighbor directions: row change, col change, arrow
 DIRS = [
     (-1,  0, "↑"),
@@ -15,9 +17,10 @@ DIRS = [
     ( 1,  1, "↘"),
 ]
 
+
 class BreadthFirstSearch:
     """BFS class for computing grid flow with various properties."""
-    
+
     def __init__(self):
         # 8-neighbor directions: row change, col change, arrow
         self.dirs = DIRS
@@ -31,14 +34,15 @@ class BreadthFirstSearch:
     def generate_random_grid(self, n=None, obstacle_prob=None, seed=None):
         """
         Generate a random grid with obstacles.
-        
+
         Args:
             n: Grid size (must be odd), defaults to self.grid_size
             obstacle_prob: Probability of obstacle, defaults to self.obstacle_prob
             seed: Random seed for reproducibility
-        
+
         Returns:
-            grid: 2D list where 0=free, 1=obstacle (center is always free)
+            grid: (n, n) numpy array where 0=free, 1=obstacle (center is always
+                free)
         """
         if n is None:
             n = self.grid_size
@@ -49,7 +53,7 @@ class BreadthFirstSearch:
 
         assert n > 0 and n % 2 == 1, "n must be a positive odd number"
 
-        grid = [[0 for _ in range(n)] for _ in range(n)]
+        grid = np.zeros((n, n), dtype=np.int8)
         center = (n // 2, n // 2)
 
         for r in range(n):
@@ -58,22 +62,22 @@ class BreadthFirstSearch:
                     continue
 
                 if random.random() < obstacle_prob:
-                    grid[r][c] = 1
+                    grid[r, c] = 1
 
         for r in range(n):
             for c in range(n):
                 if (r, c) == center:
                     continue
-                if grid[r][c] == 0:
+                if grid[r, c] == 0:
                     continue
 
                 # Ensure at least one free neighbor for each obstacle
                 has_obstacle_neighbor = any(
-                    self._is_inside(r + dr, c + dc, n) and grid[r + dr][c + dc] == 1
+                    self._is_inside(r + dr, c + dc, n) and grid[r + dr, c + dc] == 1
                     for dr, dc, _ in self.dirs
                 )
                 if not has_obstacle_neighbor:
-                    grid[r][c] = 0
+                    grid[r, c] = 0
 
         return grid
 
@@ -104,7 +108,8 @@ class BreadthFirstSearch:
             seed: Random seed for reproducibility.
 
         Returns:
-            grid: 2D list where 0=free, 1=obstacle (center is always free).
+            grid: (n, n) numpy array where 0=free, 1=obstacle (center is always
+                free).
         """
         if n is None:
             n = self.grid_size
@@ -117,7 +122,7 @@ class BreadthFirstSearch:
         # Local RNG so we don't disturb the global random state.
         rng = random.Random(seed)
 
-        grid = [[0 for _ in range(n)] for _ in range(n)]
+        grid = np.zeros((n, n), dtype=np.int8)
         center = (n // 2, n // 2)
 
         target_cells = int(obstacle_prob * n * n)
@@ -147,11 +152,11 @@ class BreadthFirstSearch:
                 for c in range(c0, c0 + w):
                     if (r, c) == center:
                         continue
-                    if grid[r][c] == 0:
-                        grid[r][c] = 1
+                    if grid[r, c] == 0:
+                        grid[r, c] = 1
                         covered += 1
 
-        grid[center[0]][center[1]] = 0  # keep the center free
+        grid[center[0], center[1]] = 0  # keep the center free
         return grid
 
     def compute_flow_map(self, grid, source=None):
@@ -159,7 +164,7 @@ class BreadthFirstSearch:
         Compute outward flow from the center using BFS.
 
         Args:
-            grid: 2D list where 0=free space, 1=obstacle
+            grid: (n, n) numpy array where 0=free space, 1=obstacle
 
         Returns:
             flow: 2D list with arrow directions showing flow out from center
@@ -189,7 +194,7 @@ class BreadthFirstSearch:
                 if not self._is_inside(nr, nc, n):
                     continue
 
-                if grid[nr][nc] == 1: # grid == 1 is an obstacle
+                if grid[nr, nc] == 1:  # grid == 1 is an obstacle
                     continue
 
                 if visited[nr][nc]:
@@ -206,7 +211,7 @@ class BreadthFirstSearch:
         # Mark obstacles
         for r in range(n):
             for c in range(n):
-                if grid[r][c] == 1:
+                if grid[r, c] == 1:
                     flow_map[r][c] = "#"
 
         return flow_map

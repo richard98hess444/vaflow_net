@@ -23,7 +23,7 @@ class WaterFlow(BreadthFirstSearch):
         n = len(grid)
         if not self._is_inside(nr, nc, n):
             return False
-        if grid[nr][nc] == 1:
+        if grid[nr, nc] == 1:
             return False
 
         dr = nr - r
@@ -33,12 +33,12 @@ class WaterFlow(BreadthFirstSearch):
         if dr != 0 and dc != 0:
             sr1, sc1 = r + dr, c
             sr2, sc2 = r, c + dc
-            if grid[sr1][sc1] == 1 and grid[sr2][sc2] == 1:
+            if grid[sr1, sc1] == 1 and grid[sr2, sc2] == 1:
                 return False
 
         return True
 
-    def compute_viscosity_map(self, grid: list, source=None):
+    def compute_viscosity_map(self, grid: np.ndarray, source=None):
         """
         Compute viscosity map based on nearby obstacles.
 
@@ -46,17 +46,17 @@ class WaterFlow(BreadthFirstSearch):
         viscosity = 0.5^(num_obstacle_neighbors)
 
         Args:
-            grid: 2D list where 0=free, 1=obstacle
+            grid: (n, n) numpy array where 0=free, 1=obstacle
             source: tuple (row, col) indicating the source position
         Returns:
             viscosity_map: 2D numpy array with viscosity values (-1 for obstacles)
         """
         n = len(grid)
-        viscosity_map = np.array([[1.0 for _ in range(n)] for _ in range(n)])
+        viscosity_map = np.ones((n, n))
 
         for r in range(n):
             for c in range(n):
-                if grid[r][c] == 1:
+                if grid[r, c] == 1:
                     viscosity_map[r][c] = -1
                 else:
                     # Count obstacle neighbors, weighting orthogonal (up/down/
@@ -64,7 +64,7 @@ class WaterFlow(BreadthFirstSearch):
                     obstacle_count = 0.0
                     for dr, dc, _ in self.dirs:
                         nr, nc_check = r + dr, c + dc
-                        if self._is_inside(nr, nc_check, n) and grid[nr][nc_check] == 1:
+                        if self._is_inside(nr, nc_check, n) and grid[nr, nc_check] == 1:
                             if dr != 0 and dc != 0:
                                 obstacle_count += 0.5  # diagonal
                             else:
@@ -77,13 +77,13 @@ class WaterFlow(BreadthFirstSearch):
             viscosity_map[source[0]][source[1]] = 0.0  # source has no viscosity
         return viscosity_map
 
-    def compute_arrival_time_map(self, grid: list, source=None):
+    def compute_arrival_time_map(self, grid: np.ndarray, source=None):
         n = len(grid)
         center = (n // 2, n // 2)
         if source is not None:
             center = source
 
-        arrival_time_map = np.array([[-1.0 for _ in range(n)] for _ in range(n)])
+        arrival_time_map = np.full((n, n), -1.0)
 
         cr, cc = center
         arrival_time_map[cr][cc] = 0.0
@@ -133,7 +133,7 @@ class WaterFlow(BreadthFirstSearch):
             strength_map[source[0]][source[1]] = 2.0
         return strength_map
 
-    def compute_flow_map(self, grid: list, source=None):
+    def compute_flow_map(self, grid: np.ndarray, source=None):
         """
         Compute outward flow arrows from source using movement constraints.
 
@@ -173,7 +173,7 @@ class WaterFlow(BreadthFirstSearch):
 
         for r in range(n):
             for c in range(n):
-                if grid[r][c] == 1:
+                if grid[r, c] == 1:
                     flow_map[r][c] = "#"
 
         return flow_map
@@ -182,7 +182,7 @@ class WaterFlow(BreadthFirstSearch):
         self,
         strength_map: np.ndarray,
         viscosity_map: np.ndarray,
-        grid: list,
+        grid: np.ndarray,
         source=None,
     ):
         """
@@ -202,11 +202,11 @@ class WaterFlow(BreadthFirstSearch):
         cr, cc = n // 2, n // 2
         if source is not None:
             cr, cc = source
-        filtered = np.array([[-1.0 for _ in range(n)] for _ in range(n)])
+        filtered = np.full((n, n), -1.0)
 
         for r in range(n):
             for c in range(n):
-                if grid[r][c] == 1:
+                if grid[r, c] == 1:
                     filtered[r][c] = -1
                 # elif (r, c) == (cr, cc):
                 #     filtered[r][c] = 1.0
@@ -218,7 +218,7 @@ class WaterFlow(BreadthFirstSearch):
         return filtered
 
     def apply_strength_threshold(
-        self, filtered_map: np.ndarray, grid: list, threshold=0.5, source=None
+        self, filtered_map: np.ndarray, grid: np.ndarray, threshold=0.5, source=None
     ):
         """
         Apply threshold to filtered strength map to create soft obstacles.
@@ -237,13 +237,13 @@ class WaterFlow(BreadthFirstSearch):
         cr, cc = n // 2, n // 2
         if source is not None:
             cr, cc = source
-        thresholded_grid = np.array([[grid[r][c] for c in range(n)] for r in range(n)])
+        thresholded_grid = grid.copy()
 
         for r in range(n):
             for c in range(n):
                 if (r, c) == (cr, cc):
                     continue
-                if grid[r][c] == 0:
+                if grid[r, c] == 0:
                     fs = filtered_map[r][c]
                     if fs >= 0 and fs < threshold:
                         thresholded_grid[r][c] = 2

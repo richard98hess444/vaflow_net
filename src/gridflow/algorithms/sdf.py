@@ -62,33 +62,32 @@ class SignedDistanceField(BreadthFirstSearch):
             np.minimum(dist, d, out=dist)
         return dist
 
-    def compute_sdf_map(self, grid: list[list[int]]) -> np.ndarray:
+    def compute_sdf_map(self, grid: np.ndarray) -> np.ndarray:
         """Compute the signed distance field of a binary grid.
 
         Args:
-            grid: 2D list where 0=free, 1=obstacle.
+            grid: (n, n) numpy array where 0=free, 1=obstacle.
 
         Returns:
             sdf: (n, n) array. Positive = clearance to the nearest obstacle in
                 free space; negative = depth inside an obstacle. Free cells hold
                 ``inf`` only when the grid contains no obstacles at all.
         """
-        n = len(grid)
-        grid_arr = np.asarray(grid)
-        obstacle_coords = np.argwhere(grid_arr == 1)
-        free_coords = np.argwhere(grid_arr == 0)
+        n = grid.shape[0]
+        obstacle_coords = np.argwhere(grid == 1)
+        free_coords = np.argwhere(grid == 0)
 
         dist_to_obstacle = self._nearest_distance(obstacle_coords, n)
         dist_to_free = self._nearest_distance(free_coords, n)
 
         # Free cells carry their (positive) distance to the nearest obstacle;
         # obstacle cells carry the negative distance to the nearest free cell.
-        sdf = np.where(grid_arr == 0, dist_to_obstacle, -dist_to_free)
+        sdf = np.where(grid == 0, dist_to_obstacle, -dist_to_free)
         return sdf
 
     def compute_repulsive_force_map(
         self,
-        grid: list[list[int]],
+        grid: np.ndarray,
         sdf: np.ndarray = None,
         influence: float = 3.0,
         gain: float = 1.0,
@@ -96,7 +95,7 @@ class SignedDistanceField(BreadthFirstSearch):
         """Compute the APF repulsive force induced by the obstacles.
 
         Args:
-            grid: 2D list where 0=free, 1=obstacle.
+            grid: (n, n) numpy array where 0=free, 1=obstacle.
             sdf: Optional precomputed signed distance field (see
                 :meth:`compute_sdf_map`); recomputed if omitted.
             influence: Influence radius ``d0`` (in cells). Cells whose clearance
@@ -109,7 +108,6 @@ class SignedDistanceField(BreadthFirstSearch):
                 away from the nearest obstacle and grows as clearance shrinks.
         """
         n = len(grid)
-        grid_arr = np.asarray(grid)
         if sdf is None:
             sdf = self.compute_sdf_map(grid)
 
@@ -122,7 +120,7 @@ class SignedDistanceField(BreadthFirstSearch):
         force = np.zeros((n, n, 2))
         for r in range(n):
             for c in range(n):
-                if grid_arr[r][c] == 1:
+                if grid[r, c] == 1:
                     continue  # force is undefined inside obstacles
 
                 d = sdf[r][c]
@@ -139,17 +137,13 @@ class SignedDistanceField(BreadthFirstSearch):
                 force[r][c][1] = magnitude * grad_col[r][c] / g
         return force
 
-    def to_display_map(self, sdf: np.ndarray, grid: list[list[int]]) -> np.ndarray:
+    def to_display_map(self, sdf: np.ndarray, grid: np.ndarray) -> np.ndarray:
         """Convert an SDF to a plottable clearance map.
 
         Obstacle cells (negative interior distances) and any non-finite entries
         are set to ``-1`` so the shared ``plot_time_map`` helper renders them as
         blocked, leaving the positive free-space clearance to form the heatmap.
         """
-        n = len(grid)
         out = np.array(sdf, dtype=float)
-        for r in range(n):
-            for c in range(n):
-                if grid[r][c] == 1 or not np.isfinite(out[r][c]):
-                    out[r][c] = -1.0
+        out[(grid == 1) | ~np.isfinite(out)] = -1.0
         return out

@@ -6,6 +6,8 @@ Inherits BreadthFirstSearch only to reuse `generate_random_grid`.
 import heapq
 import math
 
+import numpy as np
+
 from .bfs import BreadthFirstSearch
 
 
@@ -39,12 +41,12 @@ class AStar(BreadthFirstSearch):
         octile = (dx + dy) + (math.sqrt(2) - 2) * min(dx, dy)
         return self.heuristic_weight * octile
 
-    def compute_path(self, grid, start, goal):
+    def compute_path(self, grid: np.ndarray, start, goal):
         """
         Find the shortest path from start to goal using A*.
 
         Args:
-            grid: 2D list where 0=free, 1=obstacle
+            grid: (n, n) numpy array where 0=free, 1=obstacle
             start: tuple (row, col) starting cell
             goal: tuple (row, col) target cell
 
@@ -52,7 +54,6 @@ class AStar(BreadthFirstSearch):
             path: list of (row, col) from start to goal, or [] if unreachable.
         """
         n = len(grid)
-
 
         open_heap = [(self.heuristic(start, goal), start)]
         came_from = {}
@@ -76,14 +77,14 @@ class AStar(BreadthFirstSearch):
 
                 if not self._is_inside(nr, nc, n):
                     continue
-                if grid[nr][nc] == 1:  # obstacle
+                if grid[nr, nc] == 1:  # obstacle
                     continue
                 if neighbor in closed:
                     continue
 
                 # Prevent cutting through blocked diagonal corners.
                 if dr != 0 and dc != 0:
-                    if grid[r + dr][c] == 1 and grid[r][c + dc] == 1:
+                    if grid[r + dr, c] == 1 and grid[r, c + dc] == 1:
                         continue
 
                 step_cost = math.sqrt(2) if (dr != 0 and dc != 0) else 1

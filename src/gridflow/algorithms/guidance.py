@@ -56,7 +56,7 @@ class VectorFieldGuidance:
         self.influence = influence
         self.gain = gain
 
-    def eik_method(self, grid: list[list[int]], goal: tuple[int, int]) -> np.ndarray:
+    def eik_method(self, grid: np.ndarray, goal: tuple[int, int]) -> np.ndarray:
         """Build the guidance field from the Eikonal gradient plus SDF repulsion.
 
         Combines the Eikonal shortest-path gradient (attraction toward ``goal``)
@@ -65,7 +65,7 @@ class VectorFieldGuidance:
         instance.
 
         Args:
-            grid: 2D list where 0=free, 1=obstacle.
+            grid: (n, n) numpy array where 0=free, 1=obstacle.
             goal: (row, col) target cell the field should guide toward.
 
         Returns:
@@ -80,16 +80,16 @@ class VectorFieldGuidance:
         )
 
         guidance = gradient_map + repulsive_force_map
-        guidance[goal[0]][goal[1]] = np.array([0.0, 0.0])
+        guidance[goal[0], goal[1]] = np.array([0.0, 0.0])
         return guidance.astype(np.float32)
 
     def bfs_method(
-        self, grid: list[list[int]], goal: tuple[int, int], threshold: float = 0.05
+        self, grid: np.ndarray, goal: tuple[int, int], threshold: float = 0.05
     ) -> np.ndarray:
         """Build the guidance field from the original WaterFlow pipeline.
 
         Args:
-            grid: 2D list where 0=free, 1=obstacle.
+            grid: (n, n) numpy array where 0=free, 1=obstacle.
             goal: (row, col) target cell (the WaterFlow source).
             threshold: Strength threshold for turning weak cells into soft
                 obstacles before the flow is traced.
@@ -97,7 +97,6 @@ class VectorFieldGuidance:
         Returns:
             target_vectors: (n, n, 2) float32 array of (drow, dcol) vectors.
         """
-        n = len(grid)
         wf = self.wf
 
         arrival_time_map = wf.compute_arrival_time_map(grid, source=goal)
@@ -111,11 +110,8 @@ class VectorFieldGuidance:
             filtered_map, grid, threshold=threshold, source=goal
         )
 
-        binary_thresholded_grid = [
-            [1 if thresholded_grid[r][c] != 0 else 0 for c in range(n)]
-            for r in range(n)
-        ]
-        binary_thresholded_grid[goal[0]][goal[1]] = 0  # ensure goal is free
+        binary_thresholded_grid = (thresholded_grid != 0).astype(np.int8)
+        binary_thresholded_grid[goal[0], goal[1]] = 0  # ensure goal is free
 
         flow_map_t = wf.compute_flow_map(binary_thresholded_grid, source=goal)
         flow_map_r = wf.reverse_flow_map(flow_map_t)

@@ -1,4 +1,7 @@
 import time
+
+import numpy as np
+
 from gridflow.algorithms.flow import WaterFlow
 from gridflow.utils import (
     plot_grid,
@@ -45,13 +48,11 @@ def main():
     )
 
     # Build binary grid for BFS (treat soft obstacles as hard obstacles)
-    binary_thresholded_grid = [
-        [1 if thresholded_grid[r][c] != 0 else 0 for c in range(n)] for r in range(n)
-    ]
+    binary_thresholded_grid = (thresholded_grid != 0).astype(np.int8)
     if source is not None:
-        binary_thresholded_grid[source[0]][source[1]] = 0  # ensure source is free
+        binary_thresholded_grid[source[0], source[1]] = 0  # ensure source is free
     else:
-        binary_thresholded_grid[n // 2][n // 2] = 0  # ensure source is free
+        binary_thresholded_grid[n // 2, n // 2] = 0  # ensure source is free
     flow_map_t = wf.compute_flow_map(binary_thresholded_grid, source=source)
     vectors = wf.convert_flow_map_to_vectors(flow_map_t, strength_map)
 

@@ -23,8 +23,8 @@ def main():
     goal = (0, n - 1)
 
     # ensure start and goal are free
-    grid[start[0]][start[1]] = 0
-    grid[goal[0]][goal[1]] = 0
+    grid[start[0], start[1]] = 0
+    grid[goal[0], goal[1]] = 0
 
     path = astar.compute_path(grid, start, goal)
 

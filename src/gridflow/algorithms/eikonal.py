@@ -45,25 +45,21 @@ class Eikonal(BreadthFirstSearch):
         super().__init__()
         self.h = h  # grid spacing (distance between adjacent cell centers)
 
-    def build_speed_map(self, grid: list[list[int]], free_speed=1.0) -> np.ndarray:
+    def build_speed_map(self, grid: np.ndarray, free_speed=1.0) -> np.ndarray:
         """Build a speed field ``f`` from a binary grid.
 
         Free cells propagate at ``free_speed``; obstacles get speed 0, which
         corresponds to an infinite cost and blocks the wavefront.
 
         Args:
-            grid: 2D list where 0=free, 1=obstacle.
+            grid: (n, n) numpy array where 0=free, 1=obstacle.
             free_speed: Propagation speed assigned to free cells.
 
         Returns:
             speed: (n, n) numpy array of local speeds (0 on obstacles).
         """
-        n = len(grid)
-        speed = np.full((n, n), float(free_speed))
-        for r in range(n):
-            for c in range(n):
-                if grid[r][c] == 1:
-                    speed[r][c] = 0.0
+        speed = np.full(grid.shape, float(free_speed))
+        speed[grid == 1] = 0.0
         return speed
 
     def _solve_quadratic(
@@ -117,14 +113,14 @@ class Eikonal(BreadthFirstSearch):
 
     def compute_arrival_time_map(
         self,
-        grid: list[list[int]],
+        grid: np.ndarray,
         source: tuple[int, int] = None,
         speed_map: np.ndarray = None,
     ) -> np.ndarray:
         """Solve the Eikonal equation and return the arrival-time field.
 
         Args:
-            grid: 2D list where 0=free, 1=obstacle.
+            grid: (n, n) numpy array where 0=free, 1=obstacle.
             source: (row, col) wavefront origin. Defaults to the grid center.
             speed_map: Optional (n, n) speed field. Defaults to speed 1 on free
                 cells and 0 on obstacles (see :meth:`build_speed_map`).
@@ -172,23 +168,19 @@ class Eikonal(BreadthFirstSearch):
         return T
 
     def to_display_map(
-        self, travel_time_map: np.ndarray, grid: list[list[int]]
+        self, travel_time_map: np.ndarray, grid: np.ndarray
     ) -> np.ndarray:
         """Convert an ``inf``-padded travel-time field to a plottable map.
 
         Obstacles and unreachable cells become ``-1`` so they render as empty,
         matching the convention used by the ``plot_*`` helpers.
         """
-        n = len(grid)
         out = np.array(travel_time_map, dtype=float)
-        for r in range(n):
-            for c in range(n):
-                if grid[r][c] == 1 or math.isinf(out[r][c]):
-                    out[r][c] = -1.0
+        out[(grid == 1) | ~np.isfinite(out)] = -1.0
         return out
 
     def compute_gradient_map(
-        self, travel_time_map: np.ndarray, grid: list[list[int]]
+        self, travel_time_map: np.ndarray, grid: np.ndarray
     ) -> np.ndarray:
         """Compute the descent (flow) direction ``-grad T / |grad T|``.
 
@@ -200,7 +192,7 @@ class Eikonal(BreadthFirstSearch):
         Args:
             travel_time_map: Travel-time field from
                 :meth:`compute_travel_time_map`.
-            grid: 2D list where 0=free, 1=obstacle.
+            grid: (n, n) numpy array where 0=free, 1=obstacle.
 
         Returns:
             vectors: (n, n, 2) array of unit (drow, dcol) flow vectors. Zero on
@@ -211,7 +203,7 @@ class Eikonal(BreadthFirstSearch):
 
         def valid(r, c):
             return (
-                self._is_inside(r, c, n) and grid[r][c] != 1 and not math.isinf(T[r][c])
+                self._is_inside(r, c, n) and grid[r, c] != 1 and not math.isinf(T[r][c])
             )
 
         vectors = np.zeros((n, n, 2))

@@ -96,7 +96,7 @@ class GridFlowSimulator:
         grid = self.wf.generate_sparse_grid(
             n=gen_n, obstacle_prob=obstacle_prob, min_side=5, max_side=10, seed=seed
         )
-        world = np.array(grid, dtype=np.int8)
+        world = grid.astype(np.int8)
         return world[:size, :size]
 
     def _is_valid_pos(self, r, c):
@@ -433,10 +433,11 @@ class GridFlowSimulator:
         goal_cell = self.goal_edge_cell()
         if goal_cell is None:
             return None, None
-        grid = self.local_map.tolist()
         threshold = self.wf_target_threshold if threshold is None else threshold
 
-        final_map = self.guide.bfs_method(grid, goal_cell, threshold=threshold)
+        final_map = self.guide.bfs_method(
+            self.local_map, goal_cell, threshold=threshold
+        )
 
         return final_map.astype(np.float32), np.arange(n)
 
@@ -459,9 +460,8 @@ class GridFlowSimulator:
         goal_cell = self.goal_edge_cell()
         if goal_cell is None:
             return None, None
-        grid = self.local_map.tolist()
 
-        final_map = self.guide.eik_method(grid, goal_cell)
+        final_map = self.guide.eik_method(self.local_map, goal_cell)
 
         return final_map, np.arange(n)
 
@@ -509,7 +509,7 @@ class GridFlowSimulator:
         if plot_mode not in ("overlay", "compare"):
             raise ValueError("plot_mode must be 'overlay' or 'compare'")
 
-        local = self.local_map.tolist()
+        local = self.local_map
 
         # Goal in the local frame, or its projection onto the border if it is
         # outside the current scan window.

@@ -57,7 +57,7 @@ def _overlay_center_and_source(ax: Axes, n: int, source=None):
         )
 
 
-def _overlay_binary_obstacles(ax: Axes, grid: list[list[int]]):
+def _overlay_binary_obstacles(ax: Axes, grid: np.ndarray):
     """Draw black obstacle cells from a binary occupancy grid."""
     n = len(grid)
     for r in range(n):
@@ -70,7 +70,7 @@ def _overlay_binary_obstacles(ax: Axes, grid: list[list[int]]):
                 )
 
 
-def overlay_obstacles_and_source(ax: Axes, grid: list[list[int]], source=None):
+def overlay_obstacles_and_source(ax: Axes, grid: np.ndarray, source=None):
     """Draw obstacles as black, the center cell as red, and the source as green."""
     _overlay_binary_obstacles(ax, grid)
     _overlay_center_and_source(ax, len(grid), source)
@@ -93,7 +93,7 @@ def overlay_thresholded_obstacles(ax: Axes, thresholded_grid):
                 )
 
 
-def plot_grid(grid: list[list[int]], source=None):
+def plot_grid(grid: np.ndarray, source=None):
     """
     Visualize the thresholded grid.
 
@@ -152,8 +152,8 @@ def plot_directions(flow: list[list[str]], source=None):
 
 
 def _plot_scalar_map(
-    data_map: list[list[float]],
-    grid: list[list[int]],
+    data_map: np.ndarray,
+    grid: np.ndarray,
     cmap: str,
     vmin: float,
     vmax: float,

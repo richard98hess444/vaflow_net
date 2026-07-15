@@ -35,7 +35,7 @@ class FlowFieldDataset(Dataset):
         while True:
             r = int(rng.integers(0, n))
             c = int(rng.integers(0, n))
-            if grid[r][c] == 0:
+            if grid[r, c] == 0:
                 return (r, c)
 
     def __len__(self):
