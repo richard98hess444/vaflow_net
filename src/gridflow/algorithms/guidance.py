@@ -32,6 +32,8 @@ from .sdf import SignedDistanceField
 # caller shares the same balance between attraction and repulsion.
 DEFAULT_INFLUENCE = 3.0
 DEFAULT_GAIN = 1.0
+DEFAULT_RESOLUTION = 0.1
+DEFAULT_FALLOFF_POWER = 0.67
 
 
 class VectorFieldGuidance:
@@ -48,13 +50,19 @@ class VectorFieldGuidance:
     """
 
     def __init__(
-        self, influence: float = DEFAULT_INFLUENCE, gain: float = DEFAULT_GAIN
+        self,
+        influence: float = DEFAULT_INFLUENCE,
+        gain: float = DEFAULT_GAIN,
+        resolution: float = DEFAULT_RESOLUTION,
+        falloff_power: float = DEFAULT_FALLOFF_POWER,
     ):
         self.wf = WaterFlow()
         self.eik = Eikonal()
         self.sdf = SignedDistanceField()
         self.influence = influence
         self.gain = gain
+        self.resolution = resolution
+        self.falloff_power = falloff_power
 
     def eik_method(self, grid: np.ndarray, goal: tuple[int, int]) -> np.ndarray:
         """Build the guidance field from the Eikonal gradient plus SDF repulsion.
@@ -76,7 +84,12 @@ class VectorFieldGuidance:
 
         sdf_map = self.sdf.compute_sdf_map(grid)
         repulsive_force_map = self.sdf.compute_repulsive_force_map(
-            grid, sdf=sdf_map, influence=self.influence, gain=self.gain
+            grid,
+            sdf=sdf_map,
+            influence=self.influence,
+            gain=self.gain,
+            cell_size=self.resolution,
+            falloff_power=self.falloff_power,
         )
 
         guidance = gradient_map + repulsive_force_map

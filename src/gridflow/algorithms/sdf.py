@@ -91,16 +91,30 @@ class SignedDistanceField(BreadthFirstSearch):
         sdf: np.ndarray = None,
         influence: float = 3.0,
         gain: float = 1.0,
+        cell_size: float = 1.0,
+        falloff_power: float = 2.0,
     ) -> np.ndarray:
         """Compute the APF repulsive force induced by the obstacles.
 
         Args:
             grid: (n, n) numpy array where 0=free, 1=obstacle.
             sdf: Optional precomputed signed distance field (see
-                :meth:`compute_sdf_map`); recomputed if omitted.
-            influence: Influence radius ``d0`` (in cells). Cells whose clearance
-                exceeds this feel no force.
+                :meth:`compute_sdf_map`); recomputed if omitted. It is always in
+                *cell* units; ``cell_size`` converts it to physical distance.
+            influence: Influence radius ``d0``. Cells whose clearance exceeds
+                this feel no force.
             gain: Repulsion strength ``eta``.
+            cell_size: Physical distance represented by one cell (e.g. 0.1 for a
+                0.1 m/cell LiDAR grid). The default 1.0 keeps the original
+                "1 cell = 1 distance" behavior. To make ``k`` meters equal one
+                distance unit, pass ``resolution_m / k`` (e.g. resolution 0.1 m
+                with 2 m per unit -> 0.05).
+            falloff_power: Exponent ``p`` on the clearance in the magnitude law
+                ``gain * (1/d - 1/d0) / d**p``. Near an obstacle the magnitude
+                then scales like ``1 / d**(p + 1)``. ``2.0`` is the standard
+                Khatib potential (magnitude ~1/d^3, steepest); lower values
+                decay more gently so cells farther from the obstacle keep more
+                push (e.g. 1.0 -> ~1/d^2, 0.0 -> ~1/d).
 
         Returns:
             force: (n, n, 2) array of (drow, dcol) force vectors. Zero on
@@ -123,7 +137,7 @@ class SignedDistanceField(BreadthFirstSearch):
                 if grid[r, c] == 1:
                     continue  # force is undefined inside obstacles
 
-                d = sdf[r][c]
+                d = sdf[r][c] * cell_size
                 if not np.isfinite(d) or d <= 0.0 or d > influence:
                     continue  # unreachable, on a boundary, or out of range
 
@@ -132,7 +146,7 @@ class SignedDistanceField(BreadthFirstSearch):
                     continue  # flat field: repulsion direction is undefined
 
                 # APF magnitude; grows without bound as the clearance d -> 0.
-                magnitude = gain * (1.0 / d - 1.0 / influence) / (d * d)
+                magnitude = gain * (1.0 / d - 1.0 / influence) / (d**falloff_power)
                 force[r][c][0] = magnitude * grad_row[r][c] / g
                 force[r][c][1] = magnitude * grad_col[r][c] / g
         return force
