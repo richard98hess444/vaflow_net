@@ -18,17 +18,36 @@ def print_flow(flow):
         print(" ".join(row))
 
 
-def setup_axes(ax: Axes, n: int):
-    """Apply aligned grid lines and centered tick labels."""
+def setup_axes(ax: Axes, n: int, tick_step: int | None = None):
+    """Apply aligned grid lines and centered tick labels.
+
+    Labels are centered on the middle cell (label 0) and run from ``-n//2`` to
+    ``+n//2``. To avoid clutter on large grids, only every ``tick_step``-th
+    label is shown. When ``tick_step`` is None it defaults to 1 for small grids
+    and 10 for large ones (e.g. a size-61 grid shows -30, -20, ..., 20, 30).
+
+    Args:
+        ax: matplotlib Axes to configure.
+        n: Grid size (number of cells per side).
+        tick_step: Spacing between shown labels (1 = every cell). Auto-selected
+            when None.
+    """
     half = n // 2
     ax.set_xticks(np.arange(-0.5, n, 1), minor=True)
     ax.set_yticks(np.arange(-0.5, n, 1), minor=True)
     ax.grid(which="minor", color="gray", linestyle="-", linewidth=1)
     ax.tick_params(which="minor", bottom=False, left=False)
-    ax.set_xticks(range(n))
-    ax.set_xticklabels(range(-half, half + 1))
-    ax.set_yticks(range(n))
-    ax.set_yticklabels(range(-half, half + 1))
+
+    if tick_step is None:
+        tick_step = 1 if n <= 19 else 10
+
+    positions = [i for i in range(n) if (i - half) % tick_step == 0]
+    labels = [i - half for i in positions]
+
+    ax.set_xticks(positions)
+    ax.set_xticklabels(labels)
+    ax.set_yticks(positions)
+    ax.set_yticklabels(labels)
 
 
 def _create_grid_axes(
@@ -159,6 +178,7 @@ def _plot_scalar_map(
     vmax: float,
     label_fn,
     source=None,
+    add_text: bool = True,
 ):
     """Shared helper for scalar heatmap plots with text annotations."""
     n = len(grid)
@@ -184,100 +204,81 @@ def _plot_scalar_map(
                 continue
             norm = (val - vmin) / (vmax - vmin) if vmax > vmin else 0.0
             text_color = "white" if norm > 0.5 else "black"
-            ax.text(
-                c,
-                r,
-                label_fn(val),
-                ha="center",
-                va="center",
-                color=text_color,
-                fontsize=font_size,
-                zorder=4,
-            )
-    plt.show()
-
-
-def plot_strength_map(strength_map, grid, source=None):
-    """Plot strength map with values as text."""
-    _plot_scalar_map(strength_map, grid, "GnBu", 0, 0.8, lambda v: f"{v:.2f}", source)
-
-
-def plot_viscosity_map(viscosity_map, grid, source=None):
-    """Plot viscosity map with values as text."""
-    _plot_scalar_map(viscosity_map, grid, "cool", 0, 1, lambda v: f"{v:.2f}", source)
-
-
-def plot_filtered_map(filtered_strength_map, grid, source=None):
-    """Plot filtered strength map (strength x viscosity)."""
-    _plot_scalar_map(
-        filtered_strength_map, grid, "GnBu", 0, 0.5, lambda v: f"{v:.2f}", source
-    )
-
-
-def plot_time_map(
-    time_map, grid, source=None, label_fn=lambda v: f"{v:.1f}", center_label=None
-):
-    """Plot a scalar time field where negative entries mark blocked cells."""
-    n = len(grid)
-    cr, cc = n // 2, n // 2
-    reachable = [
-        time_map[r][c]
-        for r in range(n)
-        for c in range(n)
-        if time_map[r][c] >= 0
-        and not (center_label is not None and r == cr and c == cc)
-    ]
-    vmax = max(reachable) if reachable else 1.0
-
-    data = np.zeros((n, n))
-    for r in range(n):
-        for c in range(n):
-            value = time_map[r][c]
-            if (
-                grid[r][c] == 1
-                or value < 0
-                or (center_label is not None and r == cr and c == cc)
-            ):
-                data[r][c] = 0.0
-            else:
-                data[r][c] = value / vmax if vmax > 0 else 0.0
-
-    ax = _create_grid_axes(n, data, cmap="GnBu")
-    overlay_obstacles_and_source(ax, grid, source)
-
-    font_size = max(6, int(72 / n))
-    for r in range(n):
-        for c in range(n):
-            value = time_map[r][c]
-            if grid[r][c] == 1 or value < 0:
-                continue
-            if center_label is not None and r == cr and c == cc:
+            (
                 ax.text(
                     c,
                     r,
-                    center_label,
+                    label_fn(val),
                     ha="center",
                     va="center",
-                    color="white",
+                    color=text_color,
                     fontsize=font_size,
-                    fontweight="bold",
                     zorder=4,
                 )
-                continue
-
-            brightness = value / vmax if vmax > 0 else 0.0
-            text_color = "white" if brightness > 0.5 else "black"
-            ax.text(
-                c,
-                r,
-                label_fn(value),
-                ha="center",
-                va="center",
-                color=text_color,
-                fontsize=font_size,
-                zorder=4,
+                if add_text
+                else None
             )
     plt.show()
+
+
+def plot_strength_map(strength_map, grid, source=None, add_text: bool = True):
+    """Plot strength map with values as text."""
+    _plot_scalar_map(
+        strength_map,
+        grid,
+        "GnBu",
+        0,
+        0.8,
+        lambda v: f"{v:.2f}",
+        source,
+        add_text=add_text,
+    )
+
+
+def plot_viscosity_map(viscosity_map, grid, source=None, add_text: bool = True):
+    """Plot viscosity map with values as text."""
+    _plot_scalar_map(
+        viscosity_map,
+        grid,
+        "cool",
+        0,
+        1,
+        lambda v: f"{v:.2f}",
+        source,
+        add_text=add_text,
+    )
+
+
+def plot_filtered_map(filtered_strength_map, grid, source=None, add_text: bool = True):
+    """Plot filtered strength map (strength x viscosity)."""
+    _plot_scalar_map(
+        filtered_strength_map,
+        grid,
+        "GnBu",
+        0,
+        0.5,
+        lambda v: f"{v:.2f}",
+        source,
+        add_text=add_text,
+    )
+
+
+def plot_time_map(time_map, grid, source=None, add_text: bool = True):
+    """Plot a scalar time/arrival field over the grid.
+
+    Negative entries mark blocked/unreachable cells (rendered as background).
+    The color scale runs from 0 to the map's maximum value.
+    """
+    _plot_scalar_map(
+        time_map,
+        grid,
+        "GnBu",
+        0,
+        np.max(time_map),
+        lambda v: f"{v:.1f}",
+        source,
+        add_text=add_text,
+    )
 
 
 def plot_path_on_thresholded_grid(path, thresholded_grid, source=None):
