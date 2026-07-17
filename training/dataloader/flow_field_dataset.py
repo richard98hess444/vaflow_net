@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import torch
 from torch.utils.data import Dataset
 import numpy as np
@@ -89,6 +91,45 @@ class FlowFieldDataset(Dataset):
 
     def __len__(self):
         return len(self.samples)
+
+    def save(self, path):
+        """Save the generated samples to a compressed ``.npz`` file for reuse.
+
+        All samples share the same ``grid_size``, so grids/goals/targets stack
+        cleanly into single arrays. Reload with :meth:`load` to skip the (slow)
+        grid generation, reachability check and ground-truth computation.
+        """
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        grids = np.stack([grid for grid, _, _ in self.samples])
+        goals = np.array([goal for _, goal, _ in self.samples], dtype=np.int64)
+        targets = np.stack([target for _, _, target in self.samples])
+        np.savez_compressed(
+            path,
+            grids=grids,
+            goals=goals,
+            targets=targets,
+            grid_size=self.grid_size,
+        )
+
+    @classmethod
+    def load(cls, path):
+        """Reconstruct a dataset previously written by :meth:`save`.
+
+        Bypasses ``__init__`` (and thus all sample generation) and repopulates
+        the samples directly from the saved arrays.
+        """
+        data = np.load(path, allow_pickle=False)
+        obj = cls.__new__(cls)
+        obj.grid_size = int(data["grid_size"])
+        grids = data["grids"]
+        goals = data["goals"]
+        targets = data["targets"]
+        obj.samples = [
+            (grids[i], tuple(int(x) for x in goals[i]), targets[i])
+            for i in range(len(grids))
+        ]
+        return obj
 
     def __getitem__(self, idx):
         grid, goal, target = self.samples[idx]

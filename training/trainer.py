@@ -106,19 +106,63 @@ class Trainer:
     # ------------------------------------------------------------------------
     # Data
     # ------------------------------------------------------------------------
-    def _build_loaders(self):
-        """Build the dataset and return (train_loader, val_loader, val_set)."""
+    def _dataset_cache_path(self):
+        """Build a cache filename keyed to the dataset-defining config values.
+
+        Different grid sizes / obstacle densities / sample counts / seeds must
+        not collide, so all of them go into the filename.
+        """
+        config = self.config
+        name = (
+            f"flow_ds_n{config.grid_size}_p{config.obstacle_prob}"
+            f"_s{config.num_samples}_seed{config.seed}"
+            f"_reach{int(getattr(config, 'check_reachable', True))}.npz"
+        )
+        return Path(config.dataset_cache_dir) / name
+
+    def _load_or_build_dataset(self):
+        """Return the dataset, loading a cached copy when one exists.
+
+        When caching is enabled and a matching cache file is present it is
+        reused (skipping the slow grid generation, A* reachability check and
+        ground-truth computation). Otherwise the dataset is generated and, if
+        caching is enabled, written to disk for next time.
+        """
         config = self.config
 
+        cache_path = None
+        if getattr(config, "use_dataset_cache", False):
+            cache_path = self._dataset_cache_path()
+            if cache_path.exists():
+                print(f"Loading cached dataset from {cache_path}")
+                return FlowFieldDataset.load(cache_path)
+
+        print("Generating dataset...")
         dataset = FlowFieldDataset(
             num_samples=config.num_samples,
             grid_size=config.grid_size,
             obstacle_prob=config.obstacle_prob,
             seed=config.seed,
+            check_reachable=getattr(config, "check_reachable", True),
         )
 
-        val_size = int(config.num_samples * config.val_fraction)
-        train_size = config.num_samples - val_size
+        if cache_path is not None:
+            dataset.save(cache_path)
+            print(f"Saved dataset cache to {cache_path}")
+
+        return dataset
+
+    def _build_loaders(self):
+        """Build the dataset and return (train_loader, val_loader, val_set)."""
+        config = self.config
+
+        dataset = self._load_or_build_dataset()
+
+        # Split on the dataset's actual length: reachability filtering (or a
+        # loaded cache) may yield fewer than config.num_samples samples.
+        total = len(dataset)
+        val_size = int(total * config.val_fraction)
+        train_size = total - val_size
         generator = torch.Generator().manual_seed(config.seed)
         train_set, val_set = random_split(
             dataset, [train_size, val_size], generator=generator
