@@ -64,11 +64,25 @@ def _create_grid_axes(
     return ax
 
 
+def _draw_robot_footprint(ax: Axes, cr: int, cc: int):
+    robot_length = 5
+    robot_width = 3
+
+    for length in range(-robot_length // 2 + 1, robot_length // 2 + 1):
+        for width in range(-robot_width // 2 + 1, robot_width // 2 + 1):
+            r = cr + length
+            c = cc + width
+            ax.add_patch(
+                mpatches.Rectangle((c - 0.5, r - 0.5), 1, 1, color="orange", zorder=3)
+            )
+    ax.add_patch(mpatches.Rectangle((cc - 0.5, cr - 2.5), 1, 1, color="red", zorder=3))
+
+
 def _overlay_center_and_source(ax: Axes, n: int, source=None):
     """Draw the center cell in red and the optional source cell in green."""
     cr, cc = n // 2, n // 2
 
-    ax.add_patch(mpatches.Rectangle((cc - 0.5, cr - 0.5), 1, 1, color="red", zorder=3))
+    _draw_robot_footprint(ax, cr, cc)
     if source is not None:
         sr, sc = source
         ax.add_patch(
