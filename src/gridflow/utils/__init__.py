@@ -16,6 +16,10 @@ from .plotting import (
     plot_vector_field_on_grid,
 )
 
+from .grid import (
+    solidify_obstacles,
+)
+
 __all__ = [
     "print_grid",
     "print_flow",
@@ -30,4 +34,5 @@ __all__ = [
     "plot_path_on_thresholded_grid",
     "plot_vector_field",
     "plot_vector_field_on_grid",
+    "solidify_obstacles",
 ]

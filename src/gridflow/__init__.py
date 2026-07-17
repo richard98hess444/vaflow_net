@@ -22,6 +22,7 @@ from .utils import (
     overlay_obstacles_and_source,
     plot_vector_field,
     setup_axes,
+    solidify_obstacles,
 )
 
 __all__ = [
@@ -44,4 +45,5 @@ __all__ = [
     "overlay_obstacles_and_source",
     "plot_vector_field",
     "setup_axes",
+    "solidify_obstacles",
 ]
