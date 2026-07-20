@@ -13,9 +13,9 @@ import argparse
 import os
 import numpy as np
 
-from grid_flow_simulator import GridFlowSimulator
-from utils import VideoRecorder
-from configs import Config
+from gridflow_sim import GridFlowSimulator
+from gridflow_sim.render import VideoRecorder
+from gridflow_sim.configs import Config
 
 # Pre-trained dense flow model used to predict the local flow field.
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "models", "best.pt")

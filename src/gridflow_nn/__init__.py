@@ -7,5 +7,6 @@ the ``gridflow`` core package, which stays torch-free (numpy + matplotlib only).
 """
 
 from .vector_field_net import VectorFieldNet, ConvBlock
+from .inference import load_model, predict_full_field
 
-__all__ = ["VectorFieldNet", "ConvBlock"]
+__all__ = ["VectorFieldNet", "ConvBlock", "load_model", "predict_full_field"]

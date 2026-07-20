@@ -14,10 +14,8 @@ import glob
 
 import torch
 
-from trainer import Trainer
 from gridflow_nn import VectorFieldNet
-from dataloader import FlowFieldDataset
-from visualizer import plot_prediction_vs_target
+from gridflow_nn.training import Trainer, FlowFieldDataset, plot_prediction_vs_target
 
 
 def _latest_checkpoint():

@@ -9,9 +9,7 @@ import datetime
 
 import torch
 
-from trainer import Trainer
-from visualizer import plot_prediction_vs_target
-from configs import Config
+from gridflow_nn.training import Trainer, Config, plot_prediction_vs_target
 
 
 def main():

@@ -7,16 +7,15 @@ which preserves spatial obstacle geometry throughout the prediction path.
 from pathlib import Path
 import time
 
-import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from torch.utils.data import DataLoader, random_split
 import matplotlib.pyplot as plt
 
 from gridflow_nn import VectorFieldNet
-from dataloader import FlowFieldDataset
-from configs import Config
+from gridflow_nn.inference import predict_full_field
+from .dataloader import FlowFieldDataset
+from .configs import Config
 
 
 class Trainer:
@@ -52,56 +51,12 @@ class Trainer:
         device: torch.device,
         step: float = 1.0,
     ):
-        """Predict the flow vector on a (possibly sub-cell) grid of query points.
+        """Predict the flow field on a (possibly sub-cell) grid of query points.
 
-        Args:
-            model: trained VectorFieldNet
-            grid_t: (1, n, n) obstacle grid tensor
-            goal_t: (2,) normalized goal coordinates
-            grid_size: n
-            device: torch device
-            step: spacing between query points in cell units. 1.0 queries integer
-                cells (0, 1, ..., n-1); 0.5 queries half-cell offsets, etc.
-
-        Returns:
-            field: (R, R, 2) numpy array of predicted vectors, where
-                R = len(positions).
-            positions: (R,) numpy array of the query coordinates (in cell units)
-                along each axis, e.g. [0, 0.5, 1.0, ...].
+        Thin wrapper kept for backward compatibility; delegates to
+        :func:`gridflow_nn.inference.predict_full_field`.
         """
-        n = grid_size
-        model.eval()
-
-        grid_b = grid_t.unsqueeze(0).to(device)  # (1, 1, n, n)
-        goal_b = goal_t.unsqueeze(0).to(device)  # (1, 2)
-
-        with torch.no_grad():
-            dense = model(grid_b, goal_b)  # (1, n, n, 2)
-
-            if step == 1.0:
-                positions = np.arange(n)
-                return dense.squeeze(0).cpu().numpy(), positions
-
-            positions = np.arange(0, n - 1 + 1e-9, step)
-            res = len(positions)
-            coords = [[r, c] for r in positions for c in positions]
-            query = torch.tensor(coords, dtype=torch.float32) / (n - 1)
-            query = query.to(device)
-
-            # Bilinearly resample the dense field at the sub-cell query points.
-            dense_chw = dense.permute(0, 3, 1, 2)  # (1, 2, n, n)
-            sample_grid = query[..., [1, 0]] * 2.0 - 1.0  # (R*R, 2) as (col, row)
-            sample_grid = sample_grid.view(1, res * res, 1, 2)
-            sampled = F.grid_sample(
-                dense_chw,
-                sample_grid,
-                mode="bilinear",
-                padding_mode="border",
-                align_corners=True,
-            )  # (1, 2, R*R, 1)
-            pred = sampled.squeeze(-1).squeeze(0).transpose(0, 1)  # (R*R, 2)
-
-        return pred.reshape(res, res, 2).cpu().numpy(), positions
+        return predict_full_field(model, grid_t, goal_t, grid_size, device, step)
 
     # ------------------------------------------------------------------------
     # Data
