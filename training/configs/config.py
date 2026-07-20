@@ -2,7 +2,7 @@ class Config:
     """Configuration for training the neural vector-field model."""
 
     def __init__(self):
-        self.grid_size = 21
+        self.grid_size = 61
         self.obstacle_prob = 0.2
         self.threshold = 0.05
         self.num_samples = 20000
