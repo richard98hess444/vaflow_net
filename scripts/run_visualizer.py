@@ -4,8 +4,8 @@ Loads a saved checkpoint (.pt), generates a few fresh WaterFlow samples, and
 plots the predicted flow field against the ground truth.
 
 Run from the repo root:
-    python training/run_visualizer.py
-    python training/run_visualizer.py path/to/model.pt
+    python scripts/run_visualizer.py
+    python scripts/run_visualizer.py path/to/model.pt
 """
 
 import os
@@ -24,7 +24,7 @@ def _latest_checkpoint():
     if not checkpoints:
         raise FileNotFoundError(
             "No .pt checkpoint found. Train a model first "
-            "(python training/run_train_vfn.py)."
+            "(python scripts/run_trainer.py)."
         )
     return max(checkpoints, key=os.path.getmtime)
 

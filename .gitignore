@@ -92,3 +92,7 @@ Thumbs.db
 # Numpy files
 *.npy
 *.npz
+
+# Generated artifacts (regenerable dataset cache + run outputs)
+/cache/
+/outputs/

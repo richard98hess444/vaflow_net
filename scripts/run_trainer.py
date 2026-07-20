@@ -1,7 +1,7 @@
 """Train the neural vector-field model, then visualize predictions.
 
 Run from the repo root:
-    python training/run_train_vfn.py
+    python scripts/run_trainer.py
 """
 
 import os

@@ -6,7 +6,7 @@ the robot position, whether the goal is in view, and whether the goal is
 reached, and redraws the robot's local scan map.
 
 Run from the repo root (with the venv active):
-    python simulation/run_sim.py
+    python scripts/run_sim.py
 """
 
 import argparse
@@ -17,8 +17,12 @@ from gridflow_sim import GridFlowSimulator
 from gridflow_sim.render import VideoRecorder
 from gridflow_sim.configs import Config
 
+# Repo root (this script lives in scripts/), used to anchor output paths so
+# saved frames/videos land in the top-level, git-ignored outputs/ folder.
+REPO_ROOT = os.path.join(os.path.dirname(__file__), "..")
+
 # Pre-trained dense flow model used to predict the local flow field.
-MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "models", "best.pt")
+MODEL_PATH = os.path.join(REPO_ROOT, "models", "best.pt")
 
 
 class FlowSimRunner:
@@ -68,7 +72,7 @@ class FlowSimRunner:
         # as a numbered PNG and assembled into an MP4 when the run finishes.
         self.save = save
         self.max_steps = max_steps
-        default_dir = os.path.join(os.path.dirname(__file__), "renders")
+        default_dir = os.path.join(REPO_ROOT, "outputs", "renders")
         self.save_dir = save_dir or default_dir
         self.recorder = (
             VideoRecorder(self.save_dir, video_path=video_path, fps=fps)
@@ -286,7 +290,7 @@ def main(argv=None):
     parser.add_argument(
         "--save-dir",
         default=None,
-        help="Directory for saved frames and video (default: simulation/renders).",
+        help="Directory for saved frames and video (default: outputs/renders).",
     )
     parser.add_argument(
         "--video-path",

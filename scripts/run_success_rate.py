@@ -7,7 +7,7 @@ robot reaches the goal and write the per-sample results plus the overall success
 rate to a CSV file.
 
 Run from the repo root (with the venv active):
-    python simulation/run_success_rate.py
+    python scripts/run_success_rate.py
 """
 
 import argparse
@@ -24,8 +24,11 @@ from run_sim import FlowSimRunner
 
 # Directory holding the trained checkpoints; the default model is the most
 # recently modified *.pt file in here (resolved at runtime).
-MODELS_DIR = os.path.join(os.path.dirname(__file__), "..", "models")
-DEFAULT_CSV_PATH = os.path.join(os.path.dirname(__file__), "success_rate.csv")
+REPO_ROOT = os.path.join(os.path.dirname(__file__), "..")
+MODELS_DIR = os.path.join(REPO_ROOT, "models")
+DEFAULT_CSV_PATH = os.path.join(
+    REPO_ROOT, "outputs", "success_rate", "success_rate.csv"
+)
 
 
 def latest_model_path(models_dir=MODELS_DIR):
