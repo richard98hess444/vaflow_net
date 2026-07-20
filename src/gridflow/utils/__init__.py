@@ -14,6 +14,7 @@ from .plotting import (
     plot_path_on_thresholded_grid,
     plot_vector_field,
     plot_vector_field_on_grid,
+    plot_prediction_vs_target,
 )
 
 from .grid import (
@@ -34,5 +35,6 @@ __all__ = [
     "plot_path_on_thresholded_grid",
     "plot_vector_field",
     "plot_vector_field_on_grid",
+    "plot_prediction_vs_target",
     "solidify_obstacles",
 ]

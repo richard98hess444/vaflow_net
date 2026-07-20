@@ -9,12 +9,11 @@ matplotlib or the training loop.
 from .trainer import Trainer
 from .configs import Config
 from .dataloader import FlowFieldDataset
-from .visualizer import plot_prediction_vs_target, vector_field_plotter
+from gridflow.utils import plot_prediction_vs_target
 
 __all__ = [
     "Trainer",
     "Config",
     "FlowFieldDataset",
     "plot_prediction_vs_target",
-    "vector_field_plotter",
 ]
