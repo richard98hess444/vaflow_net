@@ -15,6 +15,7 @@ import numpy as np
 
 from grid_flow_simulator import GridFlowSimulator
 from utils import VideoRecorder
+from configs import Config
 
 # Pre-trained dense flow model used to predict the local flow field.
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "models", "best.pt")
@@ -300,7 +301,13 @@ def main(argv=None):
     )
     cli = parser.parse_args(argv)
 
+    config = Config()
+
     runner = FlowSimRunner(
+        local_size=config.local_size,
+        world_size=config.world_size,
+        start_pos=(config.local_size * 2, config.local_size * 2),
+        max_steps=config.max_steps,
         model_path=cli.model_path,
         flow_plot_mode=cli.flow_plot_mode,
         flow_method=cli.flow_method,
