@@ -19,12 +19,18 @@ class FlowFieldDataset(Dataset):
         abs_seed=None,
         check_reachable=True,
         max_attempts=None,
+        method="eik",
     ):
         self.grid_size = grid_size
         self.samples = []
 
         bfs = BreadthFirstSearch()  # used to generate the grids
-        guide = VectorFieldGuidance()  # shared ground-truth construction
+        guide = VectorFieldGuidance(  # shared ground-truth construction
+            gain=0.03,
+            influence=5,
+            resolution=0.1,
+            falloff_power=0.67,
+        )
         astar = AStar()  # reachability check (center -> goal)
         rng = np.random.default_rng(seed)
         center = (grid_size // 2, grid_size // 2)
@@ -52,7 +58,10 @@ class FlowFieldDataset(Dataset):
                 fail_count += 1
                 continue
 
-            target = guide.bfs_method(grid, goal)
+            if method == "bfs":
+                target = guide.bfs_method(grid, goal)
+            else:
+                target = guide.eik_method(grid, goal)
             self.samples.append((grid, goal, target))
 
             if len(self.samples) % 1000 == 0:

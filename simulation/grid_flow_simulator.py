@@ -70,7 +70,12 @@ class GridFlowSimulator:
         self.wf_target_threshold = 0.05
         self.world = self._generate_world(world_size, obstacle_prob, grid_seed)
 
-        self.guide = VectorFieldGuidance()
+        self.guide = VectorFieldGuidance(
+            gain=0.03,
+            influence=5,
+            resolution=0.1,
+            falloff_power=0.67,
+        )
 
         self.robot_pos = None  # (row, col)
         self.goal = None  # (row, col)
