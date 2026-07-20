@@ -3,8 +3,8 @@
 This is the single source of truth for how a target (drow, dcol) guidance field
 is built from a grid and a goal. It is reused by:
 
-  * the training dataset (``training/dataloader/flow_field_dataset.py``),
-  * the live simulator (``simulation/grid_flow_simulator.py``), and
+  * the training dataset (``gridflow_nn/training/dataloader/flow_field_dataset.py``),
+  * the live simulator (``gridflow_sim/simulator.py``), and
   * the exploratory notebooks (``notebook/*.ipynb``),
 
 so every part of the project trains against and evaluates the exact same target.
