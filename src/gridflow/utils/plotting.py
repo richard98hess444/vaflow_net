@@ -372,3 +372,60 @@ def plot_vector_field_on_grid(vectors, grid, source=None, color="blue"):
     overlay_thresholded_obstacles(ax, grid)
     plot_vector_field(ax, np.asarray(vectors), color=color)
     plt.show()
+
+
+def plot_prediction_vs_target(
+    pred_field, target_field, grid, goal=None, suptitle=None, pred_positions=None
+):
+    """Show predicted and ground-truth vector fields side by side.
+
+    Args:
+        pred_field: (R, R, 2) predicted vectors.
+        target_field: (n, n, 2) ground-truth vectors (integer cells).
+        grid: 2D obstacle grid.
+        goal: optional (row, col) goal/source cell.
+        suptitle: optional overall title.
+        pred_positions: optional (R,) query coordinates for the prediction grid
+            (used when the prediction is at a finer resolution than the cells).
+    """
+
+    def plot_multi_axes_vector_field(
+        ax: Axes,
+        vectors,
+        grid,
+        source=None,
+        positions=None,
+        color="blue",
+        title=None,
+    ):
+        n = len(grid)
+        setup_axes(ax, n)
+        overlay_obstacles_and_source(ax, grid, source=source)
+        overlay_thresholded_obstacles(ax, grid)
+        plot_vector_field(ax, np.asarray(vectors), positions=positions, color=color)
+        ax.set_xlim(-0.5, n - 0.5)
+        ax.set_ylim(n - 0.5, -0.5)  # invert y so row 0 is on top
+        ax.set_aspect("equal")
+        if title:
+            ax.set_title(title)
+        return ax
+
+    fig, axes = plt.subplots(1, 2, figsize=(12, 6))
+
+    plot_multi_axes_vector_field(
+        axes[0], target_field, grid, source=goal, title="Ground truth"
+    )
+    plot_multi_axes_vector_field(
+        axes[1],
+        pred_field,
+        grid,
+        source=goal,
+        positions=pred_positions,
+        title="Prediction",
+    )
+
+    fig.suptitle(suptitle)
+    fig.tight_layout()
+    plt.show()
+
+    return fig

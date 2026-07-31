@@ -7,7 +7,7 @@ robot reaches the goal and write the per-sample results plus the overall success
 rate to a CSV file.
 
 Run from the repo root (with the venv active):
-    python simulation/run_success_rate.py
+    python scripts/run_success_rate.py
 """
 
 import argparse
@@ -18,20 +18,26 @@ import random
 
 import numpy as np
 
-from grid_flow_simulator import GridFlowSimulator
+from gridflow_sim import GridFlowSimulator
+from gridflow_sim.configs import Config
 from run_sim import FlowSimRunner
 
 # Directory holding the trained checkpoints; the default model is the most
 # recently modified *.pt file in here (resolved at runtime).
-MODELS_DIR = os.path.join(os.path.dirname(__file__), "..", "models")
-DEFAULT_CSV_PATH = os.path.join(os.path.dirname(__file__), "success_rate.csv")
+REPO_ROOT = os.path.join(os.path.dirname(__file__), "..")
+MODELS_DIR = os.path.join(REPO_ROOT, "models")
+DEFAULT_CSV_PATH = os.path.join(
+    REPO_ROOT, "outputs", "success_rate", "success_rate.csv"
+)
 
 
 def latest_model_path(models_dir=MODELS_DIR):
     """Return the most recently modified *.pt checkpoint in `models_dir`."""
     checkpoints = glob.glob(os.path.join(models_dir, "*.pt"))
     if not checkpoints:
-        raise FileNotFoundError(f"No *.pt checkpoints found in {os.path.abspath(models_dir)}")
+        raise FileNotFoundError(
+            f"No *.pt checkpoints found in {os.path.abspath(models_dir)}"
+        )
     return max(checkpoints, key=os.path.getmtime)
 
 
@@ -118,10 +124,12 @@ def main(argv=None):
 
     model_path = cli.model_path or latest_model_path()
 
+    config = Config()
+
     # Load the model once (into a throwaway sim) and reuse it for every sample.
     bootstrap = GridFlowSimulator(
-        world_size=cli.world_size,
-        local_size=cli.local_size,
+        local_size=config.local_size,
+        world_size=config.world_size,
         obstacle_prob=cli.obstacle_prob,
         grid_seed=cli.seed_min,
     )

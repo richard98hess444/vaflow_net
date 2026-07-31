@@ -1,7 +1,7 @@
 """Train the neural vector-field model, then visualize predictions.
 
 Run from the repo root:
-    python training/run_train_vfn.py
+    python scripts/run_trainer.py
 """
 
 import os
@@ -9,9 +9,7 @@ import datetime
 
 import torch
 
-from trainer import Trainer
-from visualizer import plot_prediction_vs_target
-from configs import Config
+from gridflow_nn.training import Trainer, Config, plot_prediction_vs_target
 
 
 def main():

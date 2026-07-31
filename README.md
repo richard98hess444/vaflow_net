@@ -14,25 +14,41 @@ source env_vfn/bin/activate
 # 3. Install the library in editable mode (from repo root)
 uv pip install -e .
 
-# 4. Run a demo
+# 4. Install torch (we have tested on this version)
+uv pip install torch==2.7.0 torchvision==0.22.0 torchaudio==2.7.0 --index-url https://download.pytorch.org/whl/cu128
+
+
+# 5. Run a demo
 python scripts/run_flow.py
 ```
 
 ## Project Structure
 
+The code is split into three installable packages under `src/`, layered by
+dependency weight so a consumer only pulls in what it needs:
+
 - `pyproject.toml`: Packaging and dependency configuration
-- `src/gridflow/`: The installable library (lean: numpy + matplotlib only)
-  - `src/gridflow/algorithms/`: BFS, A*, water-flow, Eikonal, and SDF algorithms
+- `src/gridflow/`: Torch-free core library (numpy + matplotlib only)
+  - `src/gridflow/algorithms/`: BFS, A*, water-flow, Eikonal, Dijkstra, and SDF algorithms
   - `src/gridflow/utils/`: Plotting and utility helpers
-- `scripts/`: Runnable library demos (outside the package)
-- `training/`: Neural vector-field training project (outside the package; needs torch)
+- `src/gridflow_nn/`: Neural model + inference (needs `torch`)
+  - `vector_field_net.py`: the `VectorFieldNet` model
+  - `inference.py`: `load_model` + `predict_full_field` (lightweight, torch only)
+  - `training/`: full training stack — `Trainer`, dataloader, configs, visualizer
+    (heavy tier; not imported unless you actually train)
+- `src/gridflow_sim/`: Grid-world simulation (needs `torch`)
+  - `simulator.py`: `GridFlowSimulator` (world / local-scan / flow-following logic)
+  - `render.py`: `VideoRecorder` and rendering helpers (imported explicitly)
+  - `configs/`: simulation `Config`
+- `scripts/`: All runnable entry points (demos, training, simulation) — outside the packages
 - `models/`: Saved model checkpoints (`.pt`)
 
 ## Requirements
 
 - Python `>=3.11`
-- Library: `numpy`, `matplotlib`
-- Training: `torch` (find the version that matches your device)
+- Core (`gridflow`): `numpy`, `matplotlib`
+- Model / training / simulation (`gridflow_nn`, `gridflow_sim`): `torch`
+  (find the version that matches your device)
 
 ## Running Scripts
 
@@ -51,22 +67,22 @@ python scripts/run_sdf.py
 Run from the repo root:
 
 ```bash
-python training/run_trainer.py     # train + visualize, saves a .pt model
-python training/run_visualizer.py    # load latest .pt and visualize
-python training/run_visualizer.py models/your_checkpoint.pt    # visualize a pre-trained model
+python scripts/run_trainer.py     # train + visualize, saves a .pt model
+python scripts/run_visualizer.py    # load latest .pt and visualize
+python scripts/run_visualizer.py models/your_checkpoint.pt    # visualize a pre-trained model
 ```
 
 ### Simulation
 ```bash
-python simulation/run_sim.py -h  # shows all the arguments
-python simulation/run_sim.py --model-path models/your_checkpoint.pt --save  # run autonomous mode and save a video
-python simulation/run_sim.py --model-path models/your_checkpoint.pt --mode teleo  # run teleoperation
+python scripts/run_sim.py -h  # shows all the arguments
+python scripts/run_sim.py --model-path models/your_checkpoint.pt --save  # run autonomous mode and save a video
+python scripts/run_sim.py --model-path models/your_checkpoint.pt --mode teleo  # run teleoperation
 ```
 
 ### Success rate recording
 ```bash
-python simulation/run_success_rate.py -h  # shows all the arguments
-python simulation/run_success_rate.py --model-path models/your_checkpoint.pt
+python scripts/run_success_rate.py -h  # shows all the arguments
+python scripts/run_success_rate.py --model-path models/your_checkpoint.pt
 ```
 
 ### Known caveat: diagonal corner behavior
@@ -80,6 +96,7 @@ imitate them.
 
 ## Important Notes
 
-- The library (`src/gridflow`) never imports `torch`; only the `training/` project does.
+- The core library (`src/gridflow`) never imports `torch`; only `gridflow_nn` and `gridflow_sim` do.
+- Importing `gridflow_nn` for inference does not pull in matplotlib or the training code.
 - Always activate the virtual environment before running commands.
 - If you use system Python instead of the venv Python, imports may fail or dependencies may not match.

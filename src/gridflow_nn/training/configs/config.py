@@ -15,4 +15,4 @@ class Config:
         
         self.check_reachable = True
         self.use_dataset_cache = True  # generate once, then reuse from disk
-        self.dataset_cache_dir = "training/cache"
+        self.dataset_cache_dir = "cache/datasets"
