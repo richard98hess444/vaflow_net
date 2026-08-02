@@ -8,6 +8,14 @@ from .algorithms import (
     SignedDistanceField,
     VectorFieldGuidance,
 )
+from .algorithms_3d import (
+    BreadthFirstSearch3D,
+    WaterFlow3D,
+    Eikonal3D,
+    SignedDistanceField3D,
+    VectorFieldGuidance3D,
+    AStar3D,
+)
 from .utils import (
     print_grid,
     print_flow,
@@ -24,9 +32,23 @@ from .utils import (
     plot_vector_field,
     setup_axes,
     solidify_obstacles,
+    plot_grid_3d,
+    plot_time_map_3d,
+    plot_vector_field_3d,
+    plot_path_3d,
 )
 
 __all__ = [
+    "BreadthFirstSearch3D",
+    "WaterFlow3D",
+    "Eikonal3D",
+    "SignedDistanceField3D",
+    "VectorFieldGuidance3D",
+    "AStar3D",
+    "plot_grid_3d",
+    "plot_time_map_3d",
+    "plot_vector_field_3d",
+    "plot_path_3d",
     "BreadthFirstSearch",
     "WaterFlow",
     "AStar",
