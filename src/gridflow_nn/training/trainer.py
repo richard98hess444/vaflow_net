@@ -12,10 +12,24 @@ import torch.nn as nn
 from torch.utils.data import DataLoader, random_split
 import matplotlib.pyplot as plt
 
-from gridflow_nn import VectorFieldNet
+from gridflow_nn import VectorFieldNet, VectorFieldNet3D
 from gridflow_nn.inference import predict_full_field
-from .dataloader import FlowFieldDataset
+from gridflow_nn.inference_3d import predict_full_field_3d
+from .dataloader import FlowFieldDataset, FlowFieldDataset3D
 from .configs import Config
+
+DATASETS = {
+    "2d": {
+        "dataset": FlowFieldDataset,
+        "model": VectorFieldNet,
+        "predict": predict_full_field,
+    },
+    "3d": {
+        "dataset": FlowFieldDataset3D,
+        "model": VectorFieldNet3D,
+        "predict": predict_full_field_3d,
+    },
+}
 
 
 class Trainer:
@@ -28,11 +42,23 @@ class Trainer:
         self.config = config
         self.save_path = Path(save_path)
 
+        dataset_key = getattr(config, "dataset", "2d")
+        if dataset_key not in DATASETS:
+            raise ValueError(
+                f"Unknown config.dataset {dataset_key!r}; "
+                f"expected one of {sorted(DATASETS)}."
+            )
+        self.dataset_key = dataset_key
+        spec = DATASETS[dataset_key]
+        self.dataset_cls = spec["dataset"]
+        self.model_cls = spec["model"]
+        self._predict_fn = spec["predict"]
+
         torch.manual_seed(config.seed)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print(f"Using device: {self.device}")
 
-        self.model = VectorFieldNet(
+        self.model = self.model_cls(
             base_channels=config.model_channels,
         ).to(self.device)
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=config.lr)
@@ -42,8 +68,8 @@ class Trainer:
         self.val_loss_history = []
         self.best_val_loss = float("inf")
 
-    @staticmethod
     def predict_full_field(
+        self,
         model,
         grid_t: torch.Tensor,
         goal_t: torch.Tensor,
@@ -53,10 +79,10 @@ class Trainer:
     ):
         """Predict the flow field on a (possibly sub-cell) grid of query points.
 
-        Thin wrapper kept for backward compatibility; delegates to
-        :func:`gridflow_nn.inference.predict_full_field`.
+        Delegates to the 2D or 3D prediction helper selected by
+        ``config.dataset`` (see the ``DATASETS`` registry).
         """
-        return predict_full_field(model, grid_t, goal_t, grid_size, device, step)
+        return self._predict_fn(model, grid_t, goal_t, grid_size, device, step)
 
     # ------------------------------------------------------------------------
     # Data
@@ -69,7 +95,7 @@ class Trainer:
         """
         config = self.config
         name = (
-            f"flow_ds_n{config.grid_size}_p{config.obstacle_prob}"
+            f"flow_ds_{self.dataset_key}_n{config.grid_size}_p{config.obstacle_prob}"
             f"_s{config.num_samples}_seed{config.seed}"
             f"_reach{int(getattr(config, 'check_reachable', True))}.npz"
         )
@@ -90,10 +116,10 @@ class Trainer:
             cache_path = self._dataset_cache_path()
             if cache_path.exists():
                 print(f"Loading cached dataset from {cache_path}")
-                return FlowFieldDataset.load(cache_path)
+                return self.dataset_cls.load(cache_path)
 
-        print("Generating dataset...")
-        dataset = FlowFieldDataset(
+        print(f"Generating dataset ({self.dataset_key})...")
+        dataset = self.dataset_cls(
             num_samples=config.num_samples,
             grid_size=config.grid_size,
             obstacle_prob=config.obstacle_prob,
@@ -124,12 +150,8 @@ class Trainer:
         )
         print(f"Train samples: {train_size}, Val samples: {val_size}")
 
-        train_loader = DataLoader(
-            train_set, batch_size=config.batch_size, shuffle=True
-        )
-        val_loader = DataLoader(
-            val_set, batch_size=config.batch_size, shuffle=False
-        )
+        train_loader = DataLoader(train_set, batch_size=config.batch_size, shuffle=True)
+        val_loader = DataLoader(val_set, batch_size=config.batch_size, shuffle=False)
         return train_loader, val_loader, val_set
 
     # ------------------------------------------------------------------------
@@ -232,6 +254,7 @@ class Trainer:
                     "architecture": "dense_cnn",
                     "model_channels": config.model_channels,
                     "grid_size": config.grid_size,
+                    "dataset": self.dataset_key,
                 },
                 "best_val_loss": self.best_val_loss,
             },

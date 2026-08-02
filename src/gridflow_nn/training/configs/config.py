@@ -12,7 +12,9 @@ class Config:
         self.lr = 1e-3
         self.model_channels = 32
         self.seed = 0
-        
+
         self.check_reachable = True
         self.use_dataset_cache = True  # generate once, then reuse from disk
         self.dataset_cache_dir = "cache/datasets"
+
+        self.dataset = "3d"
