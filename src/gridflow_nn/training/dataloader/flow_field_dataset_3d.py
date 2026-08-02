@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, Sampler
 import numpy as np
 
 from gridflow.algorithms_3d import (
@@ -284,6 +284,14 @@ class FlowFieldDataset3D(Dataset):
     def __len__(self):
         return len(self.samples)
 
+    def get_raw(self, idx):
+        """Return the raw ``(grid, goal, target)`` numpy sample at ``idx``.
+
+        Unlike :meth:`__getitem__` (which returns normalized training tensors),
+        this returns the plain arrays used for visualization.
+        """
+        return self.samples[idx]
+
     def save(self, path):
         """Save the generated samples to a compressed ``.npz`` file for reuse.
 
@@ -380,6 +388,17 @@ class ChunkedFlowFieldDataset3D(Dataset):
     def __len__(self):
         return self._length
 
+    def get_raw(self, idx):
+        """Return the raw ``(grid, goal, target)`` numpy sample at ``idx``."""
+        if idx < 0:
+            idx += self._length
+        if not 0 <= idx < self._length:
+            raise IndexError(idx)
+        file_idx = bisect.bisect_right(self._offsets, idx) - 1
+        local = idx - self._offsets[file_idx]
+        grids, goals, targets = self._load_file(file_idx)
+        return grids[local], tuple(int(x) for x in goals[local]), targets[local]
+
     def _load_file(self, file_idx):
         """Return the (grids, goals, targets) arrays for ``file_idx`` (LRU cached)."""
         cached = self._cache.get(file_idx)
@@ -413,3 +432,70 @@ class ChunkedFlowFieldDataset3D(Dataset):
         target_t = torch.tensor(targets[local], dtype=torch.float32)
 
         return grid_t, goal_t, target_t
+
+    def chunk_of(self, idx):
+        """Return the chunk-file index that sample ``idx`` lives in."""
+        return bisect.bisect_right(self._offsets, idx) - 1
+
+
+class ChunkAwareSampler(Sampler):
+    """Sampler that keeps access chunk-local so each chunk is read once/epoch.
+
+    A :class:`ChunkedFlowFieldDataset3D` decompresses a whole chunk file (~GBs)
+    on every cache miss. Plain ``shuffle=True`` hops between chunks on every
+    sample, so it reloads a full chunk per item and grinds to a halt. This
+    sampler instead groups indices by chunk, shuffles the *order of chunks* and
+    the *samples within* each chunk, then yields them chunk-by-chunk. With the
+    dataset's default 1-chunk cache that means exactly one decompress per chunk
+    per epoch, while still giving well-shuffled batches.
+
+    Works over a ``Subset`` of a chunked dataset (as produced by ``random_split``)
+    or over the chunked dataset directly.
+    """
+
+    def __init__(self, subset, shuffle=True, seed=0):
+        self.shuffle = shuffle
+        self.seed = seed
+        self.epoch = 0
+
+        # Resolve the underlying chunked dataset and the positions to iterate.
+        if hasattr(subset, "indices") and hasattr(subset, "dataset"):
+            base = subset.dataset
+            positions = list(range(len(subset.indices)))
+            orig_indices = list(subset.indices)
+        else:
+            base = subset
+            positions = list(range(len(subset)))
+            orig_indices = positions
+
+        if not hasattr(base, "chunk_of"):
+            raise TypeError(
+                "ChunkAwareSampler requires a ChunkedFlowFieldDataset3D "
+                "(optionally wrapped in a Subset)."
+            )
+
+        # Group DataLoader positions by the chunk their sample belongs to.
+        self._groups = {}
+        for pos, orig in zip(positions, orig_indices):
+            c = base.chunk_of(orig)
+            self._groups.setdefault(c, []).append(pos)
+        self._length = len(positions)
+
+    def __len__(self):
+        return self._length
+
+    def __iter__(self):
+        rng = np.random.default_rng(self.seed + self.epoch)
+        chunk_ids = sorted(self._groups)
+        if self.shuffle:
+            rng.shuffle(chunk_ids)
+
+        order = []
+        for c in chunk_ids:
+            positions = list(self._groups[c])
+            if self.shuffle:
+                rng.shuffle(positions)
+            order.extend(positions)
+
+        self.epoch += 1
+        return iter(order)

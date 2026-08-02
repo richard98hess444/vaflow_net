@@ -15,7 +15,12 @@ import matplotlib.pyplot as plt
 from gridflow_nn import VectorFieldNet, VectorFieldNet3D
 from gridflow_nn.inference import predict_full_field
 from gridflow_nn.inference_3d import predict_full_field_3d
-from .dataloader import FlowFieldDataset, FlowFieldDataset3D
+from .dataloader import (
+    FlowFieldDataset,
+    FlowFieldDataset3D,
+    ChunkedFlowFieldDataset3D,
+    ChunkAwareSampler,
+)
 from .configs import Config
 
 DATASETS = {
@@ -111,6 +116,13 @@ class Trainer:
         """
         config = self.config
 
+        dataset_dir = getattr(config, "dataset_dir", None)
+        if dataset_dir:
+            if self.dataset_key != "3d":
+                raise ValueError("config.dataset_dir is only supported for the 3D dataset.")
+            print(f"Loading chunked dataset (lazy, from disk) from {dataset_dir}")
+            return ChunkedFlowFieldDataset3D(dataset_dir)
+
         cache_path = None
         if getattr(config, "use_dataset_cache", False):
             cache_path = self._dataset_cache_path()
@@ -150,8 +162,24 @@ class Trainer:
         )
         print(f"Train samples: {train_size}, Val samples: {val_size}")
 
-        train_loader = DataLoader(train_set, batch_size=config.batch_size, shuffle=True)
-        val_loader = DataLoader(val_set, batch_size=config.batch_size, shuffle=False)
+        if isinstance(dataset, ChunkedFlowFieldDataset3D):
+            train_loader = DataLoader(
+                train_set,
+                batch_size=config.batch_size,
+                sampler=ChunkAwareSampler(train_set, shuffle=True, seed=config.seed),
+            )
+            val_loader = DataLoader(
+                val_set,
+                batch_size=config.batch_size,
+                sampler=ChunkAwareSampler(val_set, shuffle=False, seed=config.seed),
+            )
+        else:
+            train_loader = DataLoader(
+                train_set, batch_size=config.batch_size, shuffle=True
+            )
+            val_loader = DataLoader(
+                val_set, batch_size=config.batch_size, shuffle=False
+            )
         return train_loader, val_loader, val_set
 
     # ------------------------------------------------------------------------

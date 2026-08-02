@@ -38,7 +38,7 @@ def _visualize_2d(trainer, model, val_set, grid_size, device, num_examples=3):
 
 def _visualize_3d(trainer, model, val_set, grid_size, device, num_examples=2):
     for idx in list(val_set.indices)[:num_examples]:
-        grid, goal, target = val_set.dataset.samples[idx]
+        grid, goal, target = val_set.dataset.get_raw(idx)
 
         grid_t = torch.tensor(grid, dtype=torch.float32).unsqueeze(0)
         goal_t = torch.tensor(goal, dtype=torch.float32) / (grid_size - 1)

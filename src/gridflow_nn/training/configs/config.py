@@ -7,7 +7,7 @@ class Config:
         self.threshold = 0.05
         self.num_samples = 20000
         self.val_fraction = 0.2
-        self.batch_size = 16
+        self.batch_size = 8
         self.epochs = 100
         self.lr = 1e-3
         self.model_channels = 32
@@ -17,4 +17,5 @@ class Config:
         self.use_dataset_cache = True  # generate once, then reuse from disk
         self.dataset_cache_dir = "cache/datasets"
 
+        self.dataset_dir = "cache/dataset_3d"
         self.dataset = "3d"
