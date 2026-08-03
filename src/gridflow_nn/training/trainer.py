@@ -82,55 +82,68 @@ class Trainer:
         device: torch.device,
         step: float = 1.0,
     ):
-        """Predict the flow field on a (possibly sub-cell) grid of query points.
-
-        Delegates to the 2D or 3D prediction helper selected by
-        ``config.dataset`` (see the ``DATASETS`` registry).
-        """
         return self._predict_fn(model, grid_t, goal_t, grid_size, device, step)
 
     # ------------------------------------------------------------------------
     # Data
     # ------------------------------------------------------------------------
-    def _dataset_cache_path(self):
-        """Build a cache filename keyed to the dataset-defining config values.
+    def _dataset_dir(self):
+        """Return the per-config directory that holds this dataset's file(s).
 
-        Different grid sizes / obstacle densities / sample counts / seeds must
-        not collide, so all of them go into the filename.
+        The directory name encodes every dataset-defining value (grid size,
+        obstacle density, sample count, seed, reachability) so different configs
+        never collide. 2D datasets live under ``dataset_dir_2d`` and 3D under
+        ``dataset_dir_3d``; returns ``None`` when the relevant base dir is unset.
         """
         config = self.config
-        name = (
-            f"flow_ds_{self.dataset_key}_n{config.grid_size}_p{config.obstacle_prob}"
-            f"_s{config.num_samples}_seed{config.seed}"
-            f"_reach{int(getattr(config, 'check_reachable', True))}.npz"
+        base = (
+            getattr(config, "dataset_dir_2d", None)
+            if self.dataset_key == "2d"
+            else getattr(config, "dataset_dir_3d", None)
         )
-        return Path(config.dataset_cache_dir) / name
+        if not base:
+            return None
+        return Path(base) / config.dataset_subdir(self.dataset_key)
 
     def _load_or_build_dataset(self):
-        """Return the dataset, loading a cached copy when one exists.
-
-        When caching is enabled and a matching cache file is present it is
-        reused (skipping the slow grid generation, A* reachability check and
-        ground-truth computation). Otherwise the dataset is generated and, if
-        caching is enabled, written to disk for next time.
-        """
+        """Return the dataset, loading a cached copy when one exists."""
         config = self.config
+        ds_dir = self._dataset_dir()
+        use_cache = getattr(config, "use_dataset_cache", False)
 
-        dataset_dir = getattr(config, "dataset_dir", None)
-        if dataset_dir:
-            if self.dataset_key != "3d":
-                raise ValueError("config.dataset_dir is only supported for the 3D dataset.")
-            print(f"Loading chunked dataset (lazy, from disk) from {dataset_dir}")
-            return ChunkedFlowFieldDataset3D(dataset_dir)
+        if (
+            self.dataset_key == "3d"
+            and ds_dir is not None
+            and any(ds_dir.glob("*-*.npz"))
+        ):
+            print(f"Loading chunked dataset (lazy, from disk) from {ds_dir}")
+            return ChunkedFlowFieldDataset3D(
+                ds_dir, cache_chunks=getattr(config, "cache_chunks", 1)
+            )
 
-        cache_path = None
-        if getattr(config, "use_dataset_cache", False):
-            cache_path = self._dataset_cache_path()
-            if cache_path.exists():
-                print(f"Loading cached dataset from {cache_path}")
-                return self.dataset_cls.load(cache_path)
+        cache_file = None
+        if ds_dir is not None:
+            cache_file = ds_dir / f"0-{config.num_samples}.npz"
+            if self.dataset_key == "2d" and use_cache and cache_file.exists():
+                print(f"Loading cached dataset from {cache_file}")
+                return self.dataset_cls.load(cache_file)
 
         print(f"Generating dataset ({self.dataset_key})...")
+
+        if self.dataset_key == "3d" and use_cache and ds_dir is not None:
+            FlowFieldDataset3D(
+                num_samples=config.num_samples,
+                grid_size=config.grid_size,
+                obstacle_prob=config.obstacle_prob,
+                seed=config.seed,
+                check_reachable=getattr(config, "check_reachable", True),
+                save_dir=ds_dir,
+                chunk_size=config.num_samples,
+            )
+            return ChunkedFlowFieldDataset3D(
+                ds_dir, cache_chunks=getattr(config, "cache_chunks", 1)
+            )
+
         dataset = self.dataset_cls(
             num_samples=config.num_samples,
             grid_size=config.grid_size,
@@ -139,9 +152,9 @@ class Trainer:
             check_reachable=getattr(config, "check_reachable", True),
         )
 
-        if cache_path is not None:
-            dataset.save(cache_path)
-            print(f"Saved dataset cache to {cache_path}")
+        if self.dataset_key == "2d" and use_cache and cache_file is not None:
+            dataset.save(cache_file)
+            print(f"Saved dataset to {cache_file}")
 
         return dataset
 
@@ -162,23 +175,37 @@ class Trainer:
         )
         print(f"Train samples: {train_size}, Val samples: {val_size}")
 
+        num_workers = getattr(config, "num_workers", 0)
+        pin_memory = getattr(config, "pin_memory", False)
         if isinstance(dataset, ChunkedFlowFieldDataset3D):
             train_loader = DataLoader(
                 train_set,
                 batch_size=config.batch_size,
                 sampler=ChunkAwareSampler(train_set, shuffle=True, seed=config.seed),
+                num_workers=num_workers,
+                pin_memory=pin_memory,
             )
             val_loader = DataLoader(
                 val_set,
                 batch_size=config.batch_size,
                 sampler=ChunkAwareSampler(val_set, shuffle=False, seed=config.seed),
+                num_workers=num_workers,
+                pin_memory=pin_memory,
             )
         else:
             train_loader = DataLoader(
-                train_set, batch_size=config.batch_size, shuffle=True
+                train_set,
+                batch_size=config.batch_size,
+                shuffle=True,
+                num_workers=num_workers,
+                pin_memory=pin_memory,
             )
             val_loader = DataLoader(
-                val_set, batch_size=config.batch_size, shuffle=False
+                val_set,
+                batch_size=config.batch_size,
+                shuffle=False,
+                num_workers=num_workers,
+                pin_memory=pin_memory,
             )
         return train_loader, val_loader, val_set
 
