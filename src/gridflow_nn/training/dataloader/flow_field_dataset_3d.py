@@ -14,14 +14,6 @@ from gridflow.algorithms_3d import (
 
 
 class FlowFieldDataset3D(Dataset):
-    """Precomputed (voxel grid, goal, target vector field) 3D samples.
-
-    The 3D counterpart of
-    :class:`gridflow_nn.training.dataloader.FlowFieldDataset`. Grids are
-    ``(n, n, n)`` occupancy volumes, goals are ``(i, j, k)`` voxels and targets
-    are ``(n, n, n, 3)`` guidance fields.
-    """
-
     def __init__(
         self,
         num_samples,
@@ -89,12 +81,11 @@ class FlowFieldDataset3D(Dataset):
                         f"continuing from grid seed (attempt) {attempt}."
                     )
 
-        # `total` counts every accepted sample across the whole run, including
-        # those already flushed to disk and freed from RAM. In streaming mode
-        # (save_dir set) ``self.samples`` only holds the current, not-yet-saved
-        # chunk, so peak memory stays bounded by ``chunk_size`` samples.
+        # Peak memory stays bounded by ``chunk_size`` samples.
         total = saved_count
-        display_freq = 10 ** (int(np.log10(num_samples)) - 1) if num_samples >= 10 else 1
+        display_freq = (
+            10 ** (int(np.log10(num_samples)) - 1) if num_samples >= 10 else 1
+        )
         while total < num_samples and attempt < max_attempts:
             grid = bfs.generate_sparse_grid(
                 n=grid_size,
@@ -116,13 +107,11 @@ class FlowFieldDataset3D(Dataset):
                 target = guide.bfs_method(grid, goal)
             else:
                 target = guide.eik_method(grid, goal)
-            # Store as float32 up front: training consumes float32 and chunks are
-            # saved as float32, so this halves peak buffer RAM vs float64 targets.
+
             target = np.asarray(target, dtype=np.float32)
             self.samples.append((grid, goal, target))
             total += 1
 
-            # Once a full chunk is buffered, flush it to disk and free the RAM.
             if save_dir is not None and len(self.samples) >= chunk_size:
                 self._save_chunk(save_dir, saved_count, attempt, rng, meta)
                 saved_count += len(self.samples)
@@ -131,8 +120,6 @@ class FlowFieldDataset3D(Dataset):
             if total % display_freq == 0:
                 print(f"Collected {total} / {num_samples} samples...")
 
-        # Only whole chunks are persisted; drop any partial tail so resume always
-        # restarts on a clean chunk boundary.
         if save_dir is not None and self.samples:
             print(
                 f"Discarding {len(self.samples)} trailing samples "
@@ -254,7 +241,6 @@ class FlowFieldDataset3D(Dataset):
             obj.samples.extend(cls._load_chunk_file(path))
         obj.grid_size = int(np.load(chunk_files[0], allow_pickle=False)["grid_size"])
         return obj
-
 
     @staticmethod
     def _is_sample_valid(grid, goal):
