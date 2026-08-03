@@ -19,15 +19,79 @@ import torch
 from gridflow_nn import (
     VectorFieldNet,
     VectorFieldNet3D,
+    predict_full_field,
     predict_full_field_3d,
 )
 from gridflow_nn.training import (
-    Trainer,
     FlowFieldDataset,
     FlowFieldDataset3D,
-    plot_prediction_vs_target,
 )
-from gridflow.utils import plot_vector_field_3d
+from gridflow.utils import plot_prediction_vs_target, plot_prediction_vs_target_3d
+
+
+def _raw_sample(dataset, idx):
+    getter = getattr(dataset, "get_raw", None)
+    if getter is not None:
+        return getter(idx)
+    return dataset.samples[idx]
+
+
+def visualize_prediction_2d(
+    model,
+    dataset,
+    indices,
+    grid_size,
+    device,
+    step=0.5,
+    label="Sample",
+):
+    for idx in indices:
+        grid, goal, target = _raw_sample(dataset, idx)
+
+        grid_t = torch.tensor(grid, dtype=torch.float32).unsqueeze(0)
+        goal_t = torch.tensor(goal, dtype=torch.float32) / (grid_size - 1)
+
+        pred_field, pred_positions = predict_full_field(
+            model, grid_t, goal_t, grid_size, device, step=step
+        )
+        plot_prediction_vs_target(
+            pred_field,
+            target,
+            grid,
+            goal=goal,
+            suptitle=f"{label} {idx}",
+            pred_positions=pred_positions,
+        )
+
+
+def visualize_prediction_3d(
+    model,
+    dataset,
+    indices,
+    grid_size,
+    device,
+    step=1.0,
+    stride=1,
+    label="Sample",
+):
+    for idx in indices:
+        grid, goal, target = _raw_sample(dataset, idx)
+
+        grid_t = torch.tensor(grid, dtype=torch.float32).unsqueeze(0)
+        goal_t = torch.tensor(goal, dtype=torch.float32) / (grid_size - 1)
+
+        pred_field, _ = predict_full_field_3d(
+            model, grid_t, goal_t, grid_size, device, step=step
+        )
+        plot_prediction_vs_target_3d(
+            pred_field,
+            target,
+            grid,
+            source=goal,
+            stride=stride,
+            fast_obstacles=True,
+            suptitle=f"{label} {idx}",
+        )
 
 
 def _latest_checkpoint():
@@ -62,56 +126,15 @@ def load_model(ckpt_path, device):
 
 
 def _visualize_2d(model, dataset, grid_size, device):
-    """Plot prediction vs ground truth for each 2D sample."""
-    for idx in range(len(dataset)):
-        grid, goal, target = dataset.samples[idx]
-
-        grid_t = torch.tensor(grid, dtype=torch.float32).unsqueeze(0)
-        goal_t = torch.tensor(goal, dtype=torch.float32) / (grid_size - 1)
-
-        # step=1.0 -> integer cells; use 0.5 (or smaller) for sub-cell resolution.
-        pred_field, pred_positions = Trainer.predict_full_field(
-            model, grid_t, goal_t, grid_size, device, step=0.5
-        )
-
-        plot_prediction_vs_target(
-            pred_field,
-            target,
-            grid,
-            goal=goal,
-            suptitle=f"Sample {idx}",
-            pred_positions=pred_positions,
-        )
+    visualize_prediction_2d(
+        model, dataset, range(len(dataset)), grid_size, device, step=1.0
+    )
 
 
 def _visualize_3d(model, dataset, grid_size, device):
-    """Plot prediction and ground truth (separately) for each 3D sample."""
-    for idx in range(len(dataset)):
-        grid, goal, target = dataset.samples[idx]
-
-        grid_t = torch.tensor(grid, dtype=torch.float32).unsqueeze(0)
-        goal_t = torch.tensor(goal, dtype=torch.float32) / (grid_size - 1)
-
-        pred_field, _ = predict_full_field_3d(
-            model, grid_t, goal_t, grid_size, device, step=1.0
-        )
-
-        plot_vector_field_3d(
-            pred_field,
-            grid,
-            source=goal,
-            fast_obstacles=True,
-            stride=4,
-            title=f"Sample {idx} - Prediction",
-        )
-        plot_vector_field_3d(
-            target,
-            grid,
-            source=goal,
-            fast_obstacles=True,
-            stride=4,
-            title=f"Sample {idx} - Ground truth",
-        )
+    visualize_prediction_3d(
+        model, dataset, range(len(dataset)), grid_size, device, step=1.0, stride=4
+    )
 
 
 def main():

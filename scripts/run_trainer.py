@@ -10,61 +10,12 @@ Run from the repo root:
 import os
 import datetime
 
-import torch
-
-from gridflow_nn.training import Trainer, Config, plot_prediction_vs_target
-from gridflow.utils import plot_vector_field_3d
-
-
-def _visualize_2d(trainer, model, val_set, grid_size, device, num_examples=3):
-    for idx in list(val_set.indices)[:num_examples]:
-        grid, goal, target = val_set.dataset.samples[idx]
-
-        grid_t = torch.tensor(grid, dtype=torch.float32).unsqueeze(0)
-        goal_t = torch.tensor(goal, dtype=torch.float32) / (grid_size - 1)
-
-        pred_field, pred_positions = trainer.predict_full_field(
-            model, grid_t, goal_t, grid_size, device, step=0.25
-        )
-        plot_prediction_vs_target(
-            pred_field,
-            target,
-            grid,
-            goal=goal,
-            suptitle=f"Val sample {idx}",
-            pred_positions=pred_positions,
-        )
-
-
-def _visualize_3d(trainer, model, val_set, grid_size, device, num_examples=2):
-    for idx in list(val_set.indices)[:num_examples]:
-        grid, goal, target = val_set.dataset.get_raw(idx)
-
-        grid_t = torch.tensor(grid, dtype=torch.float32).unsqueeze(0)
-        goal_t = torch.tensor(goal, dtype=torch.float32) / (grid_size - 1)
-
-        pred_field, _ = trainer.predict_full_field(
-            model, grid_t, goal_t, grid_size, device, step=1.0
-        )
-        plot_vector_field_3d(
-            pred_field,
-            grid,
-            source=goal,
-            fast_obstacles=True,
-            title=f"Val {idx}: prediction",
-        )
-        plot_vector_field_3d(
-            target,
-            grid,
-            source=goal,
-            fast_obstacles=True,
-            title=f"Val {idx}: ground truth",
-        )
+from gridflow_nn.training import Trainer, Config
+from run_visualizer import visualize_prediction_2d, visualize_prediction_3d
 
 
 def main():
     config = Config()
-    config.dataset = "3d"
 
     os.makedirs("models", exist_ok=True)
     model_name = f"models/vfn_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.pt"
@@ -74,9 +25,15 @@ def main():
     grid_size = val_set.dataset.grid_size
 
     if trainer.dataset_key == "3d":
-        _visualize_3d(trainer, model, val_set, grid_size, device)
+        indices = list(val_set.indices)[:2]
+        visualize_prediction_3d(
+            model, val_set.dataset, indices, grid_size, device, step=1.0, label="Val"
+        )
     else:
-        _visualize_2d(trainer, model, val_set, grid_size, device)
+        indices = list(val_set.indices)[:3]
+        visualize_prediction_2d(
+            model, val_set.dataset, indices, grid_size, device, step=1.0, label="Val"
+        )
 
 
 if __name__ == "__main__":

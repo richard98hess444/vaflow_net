@@ -11,9 +11,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
-def _new_3d_axes(n: int):
-    fig = plt.figure(figsize=(8, 8))
-    ax = fig.add_axes((0.05, 0.05, 0.8, 0.9), projection="3d")
+def _configure_3d_axes(ax, n: int):
     ax.set_xlim(0, n)
     ax.set_ylim(0, n)
     ax.set_zlim(0, n)
@@ -21,6 +19,13 @@ def _new_3d_axes(n: int):
     ax.set_ylabel("j (y)")
     ax.set_zlabel("k (z)")
     ax.set_box_aspect((1, 1, 1))
+    return ax
+
+
+def _new_3d_axes(n: int):
+    fig = plt.figure(figsize=(8, 8))
+    ax = fig.add_axes((0.05, 0.05, 0.8, 0.9), projection="3d")
+    _configure_3d_axes(ax, n)
     return fig, ax
 
 
@@ -143,9 +148,13 @@ def plot_vector_field_3d(
     fast_obstacles=False,
     title="Flow field",
     alpha=1.0,
+    ax=None,
 ):
     n = len(grid)
-    fig, ax = _new_3d_axes(n)
+    standalone = ax is None
+    if standalone:
+        _, ax = _new_3d_axes(n)
+
     if fast_obstacles:
         _draw_obstacles_fast(ax, grid, alpha=0.5)
     else:
@@ -178,8 +187,55 @@ def plot_vector_field_3d(
         )
 
     _draw_center_and_source(ax, n, source)
-    ax.set_title(title)
+    if title:
+        ax.set_title(title)
+    if standalone:
+        plt.show()
+    return ax
+
+
+def plot_prediction_vs_target_3d(
+    pred_field: np.ndarray,
+    target_field: np.ndarray,
+    grid: np.ndarray,
+    source=None,
+    stride=1,
+    fast_obstacles=False,
+    suptitle=None,
+):
+    n = len(grid)
+    fig = plt.figure(figsize=(14, 7))
+
+    ax_gt = fig.add_subplot(1, 2, 1, projection="3d")
+    _configure_3d_axes(ax_gt, n)
+    plot_vector_field_3d(
+        target_field,
+        grid,
+        source=source,
+        stride=stride,
+        fast_obstacles=fast_obstacles,
+        title="Ground truth",
+        ax=ax_gt,
+    )
+
+    ax_pred = fig.add_subplot(1, 2, 2, projection="3d")
+    _configure_3d_axes(ax_pred, n)
+    plot_vector_field_3d(
+        pred_field,
+        grid,
+        source=source,
+        stride=stride,
+        fast_obstacles=fast_obstacles,
+        title="Prediction",
+        ax=ax_pred,
+    )
+
+    if suptitle:
+        fig.suptitle(suptitle)
+    fig.tight_layout()
     plt.show()
+
+    return fig
 
 
 def plot_path_3d(path, grid: np.ndarray, source=None, title="Path"):
