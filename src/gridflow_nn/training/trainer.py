@@ -10,6 +10,7 @@ import time
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, random_split
+from torch.utils.tensorboard import SummaryWriter
 import matplotlib.pyplot as plt
 
 from gridflow_nn import VectorFieldNet, VectorFieldNet3D
@@ -47,6 +48,10 @@ class Trainer:
         self.config = config
         self.save_path = Path(save_path)
 
+        self.ckpt_dir = self.save_path.with_suffix("")
+        self.tb_log_dir = self.ckpt_dir / "tensorboard"
+        self.save_model_freq = 10  # epochs
+
         dataset_key = getattr(config, "dataset", "2d")
         if dataset_key not in DATASETS:
             raise ValueError(
@@ -72,6 +77,7 @@ class Trainer:
         self.train_loss_history = []
         self.val_loss_history = []
         self.best_val_loss = float("inf")
+        self.display_freq = 1  # epochs
 
     def predict_full_field(
         self,
@@ -237,6 +243,10 @@ class Trainer:
 
         train_loader, val_loader, val_set = self._build_loaders()
 
+        self.ckpt_dir.mkdir(parents=True, exist_ok=True)
+        writer = SummaryWriter(log_dir=str(self.tb_log_dir))
+        print(f"Logging tensorboard to {self.tb_log_dir.resolve()}")
+
         best_state = None
         self.train_loss_history = []
         self.val_loss_history = []
@@ -245,6 +255,7 @@ class Trainer:
         start_time = time.perf_counter()
 
         for epoch in range(config.epochs):
+            epoch_start = time.perf_counter()
             self.model.train()
             epoch_loss = 0.0
 
@@ -264,8 +275,13 @@ class Trainer:
 
             train_loss = epoch_loss / max(len(train_loader), 1)
             val_loss = self.evaluate(val_loader)
+            epoch_time = time.perf_counter() - epoch_start
             self.train_loss_history.append(train_loss)
             self.val_loss_history.append(val_loss)
+
+            writer.add_scalar("Loss/train", train_loss, epoch)
+            writer.add_scalar("Loss/val", val_loss, epoch)
+            writer.add_scalar("Time/epoch_seconds", epoch_time, epoch)
 
             if val_loss < self.best_val_loss:
                 self.best_val_loss = val_loss
@@ -273,15 +289,19 @@ class Trainer:
                     k: v.cpu().clone() for k, v in self.model.state_dict().items()
                 }
 
-            if (epoch + 1) % 10 == 0 or epoch == config.epochs - 1:
+            if epoch % self.save_model_freq == 0 or epoch == config.epochs - 1:
+                self.save(self.ckpt_dir / f"epoch_{epoch}.pt", epoch=epoch)
+
+            if (epoch + 1) % self.display_freq == 0 or epoch == config.epochs - 1:
                 elapsed = time.perf_counter() - start_time
                 print(
                     f"Epoch [{epoch + 1}/{config.epochs}] "
                     f"train_loss: {train_loss:.6f}  val_loss: {val_loss:.6f}  "
-                    f"elapsed: {elapsed:.1f}s"
+                    f"epoch_time: {epoch_time:.1f}s  elapsed: {elapsed:.1f}s"
                 )
 
         print(f"Best val loss: {self.best_val_loss:.6f}")
+        writer.close()
         self._plot_history()
 
         # Restore and save the best model
