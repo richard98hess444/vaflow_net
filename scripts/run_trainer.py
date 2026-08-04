@@ -8,6 +8,7 @@ Run from the repo root:
 """
 
 import os
+import argparse
 import datetime
 
 from gridflow_nn.training import Trainer, Config
@@ -15,12 +16,23 @@ from run_visualizer import visualize_prediction_2d, visualize_prediction_3d
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--headless",
+        action="store_true",
+        help="Skip the post-training visualization (no plot windows).",
+    )
+    args = parser.parse_args()
+
     config = Config()
 
     os.makedirs("models", exist_ok=True)
     model_name = f"models/vfn_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.pt"
     trainer = Trainer(config=config, save_path=model_name)
     model, val_set, device = trainer.train()
+
+    if args.headless:
+        return
 
     grid_size = val_set.dataset.grid_size
 
