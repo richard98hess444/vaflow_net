@@ -320,19 +320,21 @@ class Trainer:
         plt.legend()
         plt.show()
 
-    def save(self):
+    def save(self, path=None, epoch=None):
         config = self.config
-        torch.save(
-            {
-                "model_state_dict": self.model.state_dict(),
-                "config": {
-                    "architecture": "dense_cnn",
-                    "model_channels": config.model_channels,
-                    "grid_size": config.grid_size,
-                    "dataset": self.dataset_key,
-                },
-                "best_val_loss": self.best_val_loss,
+        path = Path(path) if path is not None else self.save_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "model_state_dict": self.model.state_dict(),
+            "config": {
+                "architecture": "dense_cnn",
+                "model_channels": config.model_channels,
+                "grid_size": config.grid_size,
+                "dataset": self.dataset_key,
             },
-            self.save_path,
-        )
-        print(f"Saved model to {self.save_path.resolve()}")
+            "best_val_loss": self.best_val_loss,
+        }
+        if epoch is not None:
+            payload["epoch"] = epoch
+        torch.save(payload, path)
+        print(f"Saved model to {path.resolve()}")

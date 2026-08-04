@@ -95,22 +95,24 @@ def visualize_prediction_3d(
 
 
 def _latest_checkpoint():
-    """Return the most recently modified .pt file under models/."""
-    checkpoints = glob.glob("models/*.pt") + glob.glob("*.pt")
+    folders = [d for d in glob.glob("models/*") if os.path.isdir(d)]
+    if not folders:
+        raise FileNotFoundError(
+            "No model folder found under models/. Train a model first "
+            "(python scripts/run_trainer.py)."
+        )
+    latest_folder = max(folders, key=os.path.getmtime)
+
+    checkpoints = glob.glob(os.path.join(latest_folder, "*.pt"))
     if not checkpoints:
         raise FileNotFoundError(
-            "No .pt checkpoint found. Train a model first "
+            f"No .pt checkpoint found in {latest_folder}. Train a model first "
             "(python scripts/run_trainer.py)."
         )
     return max(checkpoints, key=os.path.getmtime)
 
 
 def load_model(ckpt_path, device):
-    """Rebuild a saved model from a checkpoint and load its weights.
-
-    Chooses ``VectorFieldNet`` or ``VectorFieldNet3D`` based on the ``dataset``
-    key stored in the checkpoint config ("2d" by default for older 2D models).
-    """
     ckpt = torch.load(ckpt_path, map_location=device)
     config = ckpt["config"]
     dataset_key = config.get("dataset", "2d")
