@@ -31,7 +31,7 @@ comes in a **2D** and a parallel **3D** flavor (3D types/functions are suffixed
 
 - `pyproject.toml`: Packaging and dependency configuration
 - `src/gridflow/`: Torch-free core library (numpy + matplotlib + scipy)
-  - `src/gridflow/algorithms/`: 2D BFS, A*, water-flow, Eikonal, Dijkstra, SDF, guidance
+  - `src/gridflow/algorithms/`: 2D BFS, A*, water-flow, Eikonal, SDF, guidance
   - `src/gridflow/algorithms_3d/`: 3D counterparts (BFS3D, A*3D, WaterFlow3D, Eikonal3D, SDF3D, guidance)
   - `src/gridflow/utils/`: Plotting helpers, including 3D plots (`plot_grid_3d`, `plot_vector_field_3d`, ...)
 - `src/gridflow_nn/`: Neural model + inference (needs `torch`)
