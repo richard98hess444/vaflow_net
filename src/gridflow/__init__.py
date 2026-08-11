@@ -32,6 +32,7 @@ from .utils import (
     plot_vector_field,
     setup_axes,
     solidify_pixels,
+    solidify_voxels,
     plot_grid_3d,
     plot_time_map_3d,
     plot_vector_field_3d,
@@ -70,4 +71,5 @@ __all__ = [
     "plot_vector_field",
     "setup_axes",
     "solidify_pixels",
+    "solidify_voxels",
 ]
