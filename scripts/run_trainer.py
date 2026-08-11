@@ -1,44 +1,50 @@
 """Train the neural vector-field model, then visualize predictions.
 
+Set ``config.dataset`` to ``"2d"`` or ``"3d"`` to choose which dataset/model to
+train. The visualization branches on the same key.
+
 Run from the repo root:
     python scripts/run_trainer.py
 """
 
 import os
+import argparse
 import datetime
 
-import torch
-
-from gridflow_nn.training import Trainer, Config, plot_prediction_vs_target
+from gridflow_nn.training import Trainer, Config
+from run_visualizer import visualize_prediction_2d, visualize_prediction_3d
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--headless",
+        action="store_true",
+        help="Skip the post-training visualization (no plot windows).",
+    )
+    args = parser.parse_args()
+
     config = Config()
+
     os.makedirs("models", exist_ok=True)
     model_name = f"models/vfn_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.pt"
     trainer = Trainer(config=config, save_path=model_name)
     model, val_set, device = trainer.train()
 
+    if args.headless:
+        return
+
     grid_size = val_set.dataset.grid_size
 
-    # Visualize predictions on a few validation samples
-    num_examples = 3
-    for idx in list(val_set.indices)[:num_examples]:
-        grid, goal, target = val_set.dataset.samples[idx]
-
-        grid_t = torch.tensor(grid, dtype=torch.float32).unsqueeze(0)
-        goal_t = torch.tensor(goal, dtype=torch.float32) / (grid_size - 1)
-
-        pred_field, pred_positions = trainer.predict_full_field(
-            model, grid_t, goal_t, grid_size, device, step=0.25
+    if trainer.dataset_key == "3d":
+        indices = list(val_set.indices)[:2]
+        visualize_prediction_3d(
+            model, val_set.dataset, indices, grid_size, device, step=1.0, label="Val"
         )
-        plot_prediction_vs_target(
-            pred_field,
-            target,
-            grid,
-            goal=goal,
-            suptitle=f"Val sample {idx}",
-            pred_positions=pred_positions,
+    else:
+        indices = list(val_set.indices)[:3]
+        visualize_prediction_2d(
+            model, val_set.dataset, indices, grid_size, device, step=1.0, label="Val"
         )
 
 

@@ -1,28 +1,31 @@
 import numpy as np
 
-def solidify_obstacles(grid, center=None, obstacle_val=1):
-    """Turn thin obstacle *surfaces* into *solid* obstacles via shadow casting.
 
-    A LiDAR only sees the surface of an obstacle that faces the robot, so the
-    region *behind* that surface stays "free" in the occupancy grid even though
-    the robot can never reach it. This function sits the robot at ``center`` and,
-    for every free cell, checks whether it has a clear line of sight back to the
-    robot. If the straight ray from the robot to the cell is blocked by an
-    obstacle, the cell is occluded and gets filled in as an obstacle.
+def solidify_pixels(grid, depth=4, samples_per_cell=2, center=None, obstacle_val=1):
+    """Fill the occluded band directly behind thin LiDAR surfaces.
+
+    For every cell, march toward the robot (``center``) up to ``depth`` cells; if
+    an obstacle is hit the cell is occluded and marked occupied. This fills a
+    gap-free band of thickness ~``depth`` behind each seen surface.
 
     Parameters
     ----------
     grid : np.ndarray
         2D occupancy grid. ``0`` = free, ``obstacle_val`` = obstacle.
+    depth : int
+        Band thickness in cells. ``0`` returns the grid unchanged.
+    samples_per_cell : int
+        Sub-steps per cell while marching, so diagonal rays can't slip between
+        diagonally-adjacent obstacles (``2`` is plenty).
     center : tuple[int, int] | None
         (row, col) of the robot. Defaults to the array centre.
     obstacle_val : int
-        The value used for obstacle cells. Free cells are assumed to be 0.
+        Value used for obstacle cells. Free cells are assumed to be 0.
 
     Returns
     -------
     np.ndarray
-        A new grid with the occluded cells filled in as solid obstacles.
+        A new grid with the occluded band filled in as solid obstacles.
     """
     grid = np.asarray(grid)
     n_rows, n_cols = grid.shape
@@ -31,34 +34,112 @@ def solidify_obstacles(grid, center=None, obstacle_val=1):
     cr, cc = center
 
     filled = grid.copy()
+    if depth <= 0:
+        return filled
+
     obstacle = grid == obstacle_val
 
-    for r in range(n_rows):
-        for c in range(n_cols):
-            if obstacle[r, c]:
-                continue  # already a surface obstacle
-            if not _has_line_of_sight(obstacle, cr, cc, r, c):
-                filled[r, c] = obstacle_val
+    # Per-cell unit direction pointing toward the robot (center - cell).
+    ii, jj = np.meshgrid(
+        np.arange(n_rows, dtype=np.float64),
+        np.arange(n_cols, dtype=np.float64),
+        indexing="ij",
+    )
+    dr = cr - ii  # (n_rows, n_cols)
+    dc = cc - jj
+    dist = np.maximum(np.sqrt(dr * dr + dc * dc), 1e-6)
+    ur, uc = dr / dist, dc / dist
+
+    # March toward the robot; a cell is occluded if any sample lands on obstacle.
+    hit = np.zeros((n_rows, n_cols), dtype=bool)
+    steps = (
+        np.arange(1, depth * samples_per_cell + 1, dtype=np.float64) / samples_per_cell
+    )
+    for s in steps:
+        sr = np.rint(ii + s * ur).astype(np.int64)
+        sc = np.rint(jj + s * uc).astype(np.int64)
+        inb = (sr >= 0) & (sr < n_rows) & (sc >= 0) & (sc < n_cols)
+        # Stop at the robot: never march past the center, otherwise cells near
+        # the robot get occluded by obstacles on the *opposite* side.
+        inb &= s <= dist
+        sr = np.clip(sr, 0, n_rows - 1)
+        sc = np.clip(sc, 0, n_cols - 1)
+        hit |= obstacle[sr, sc] & inb
+
+    filled[hit] = obstacle_val
     return filled
 
 
-def _has_line_of_sight(obstacle, r0, c0, r1, c1):
-    """True if no obstacle lies strictly between (r0, c0) and (r1, c1).
+def solidify_voxels(grid, depth=6, samples_per_cell=2, center=None, obstacle_val=1):
+    """Fill the occluded shell directly behind thin LiDAR surfaces (3D).
 
-    Walks the ray from the robot to the target cell. Both endpoints are
-    excluded: the robot cell is the origin, and the target itself is what we
-    are testing (it may be the visible surface).
+    The 3D counterpart of :func:`solidify_pixels`. For every voxel, march toward
+    the robot (``center``) up to ``depth`` voxels along the true 3D line of
+    sight; if an obstacle is hit the voxel is occluded and marked occupied. The
+    march never passes the robot, so a surface on one side can't solidify voxels
+    on the opposite side. Fills a gap-free shell of thickness ~``depth``.
+
+    Parameters
+    ----------
+    grid : np.ndarray
+        3D voxel grid ``(nx, ny, nz)``. ``0`` = free, ``obstacle_val`` = obstacle.
+    depth : int
+        Shell thickness in voxels. ``0`` returns the grid unchanged.
+    samples_per_cell : int
+        Sub-steps per voxel while marching, so diagonal rays can't slip between
+        diagonally-adjacent obstacles (``2`` is plenty).
+    center : tuple[int, int, int] | None
+        (ix, iy, iz) of the robot voxel. Defaults to the array centre.
+    obstacle_val : int
+        Value used for obstacle voxels. Free voxels are assumed to be 0.
+
+    Returns
+    -------
+    np.ndarray
+        A new grid with the occluded shell filled in as solid obstacles.
     """
-    dr = r1 - r0
-    dc = c1 - c0
-    # Sample densely (2 samples per cell) so diagonal rays cannot slip
-    # through the gap between two diagonally-adjacent obstacle cells.
-    steps = 2 * max(abs(dr), abs(dc))
-    if steps == 0:
-        return True
-    for i in range(1, steps):
-        r = int(round(r0 + dr * i / steps))
-        c = int(round(c0 + dc * i / steps))
-        if obstacle[r, c]:
-            return False
-    return True
+    grid = np.asarray(grid)
+    nx, ny, nz = grid.shape
+    if center is None:
+        center = (nx // 2, ny // 2, nz // 2)
+    cx, cy, cz = center
+
+    filled = grid.copy()
+    if depth <= 0:
+        return filled
+
+    obstacle = grid == obstacle_val
+
+    # Per-voxel unit direction pointing toward the robot (center - voxel).
+    ii, jj, kk = np.meshgrid(
+        np.arange(nx, dtype=np.float64),
+        np.arange(ny, dtype=np.float64),
+        np.arange(nz, dtype=np.float64),
+        indexing="ij",
+    )
+    dx = cx - ii  # (nx, ny, nz)
+    dy = cy - jj
+    dz = cz - kk
+    dist = np.maximum(np.sqrt(dx * dx + dy * dy + dz * dz), 1e-6)
+    ux, uy, uz = dx / dist, dy / dist, dz / dist
+
+    # March toward the robot; a voxel is occluded if any sample lands on obstacle.
+    hit = np.zeros((nx, ny, nz), dtype=bool)
+    steps = (
+        np.arange(1, depth * samples_per_cell + 1, dtype=np.float64) / samples_per_cell
+    )
+    for s in steps:
+        sx = np.rint(ii + s * ux).astype(np.int64)
+        sy = np.rint(jj + s * uy).astype(np.int64)
+        sz = np.rint(kk + s * uz).astype(np.int64)
+        inb = (sx >= 0) & (sx < nx) & (sy >= 0) & (sy < ny) & (sz >= 0) & (sz < nz)
+        # Stop at the robot: never march past the center, otherwise voxels near
+        # the robot get occluded by obstacles on the *opposite* side.
+        inb &= s <= dist
+        sx = np.clip(sx, 0, nx - 1)
+        sy = np.clip(sy, 0, ny - 1)
+        sz = np.clip(sz, 0, nz - 1)
+        hit |= obstacle[sx, sy, sz] & inb
+
+    filled[hit] = obstacle_val
+    return filled

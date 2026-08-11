@@ -1,11 +1,13 @@
 [project]
 name = "gridflow"
-version = "0.3.0"
+version = "0.4.0"
 description = "Grid Flow Simulation"
 requires-python = ">=3.11"
 dependencies = [
     "numpy",
     "matplotlib",
+    "scipy",
+    "tensorboard",
 ]
 
 [build-system]

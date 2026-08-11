@@ -8,12 +8,18 @@ matplotlib or the training loop.
 
 from .trainer import Trainer
 from .configs import Config
-from .dataloader import FlowFieldDataset
+from .dataloader import (
+    FlowFieldDataset,
+    FlowFieldDataset3D,
+    ChunkedFlowFieldDataset3D,
+)
 from gridflow.utils import plot_prediction_vs_target
 
 __all__ = [
     "Trainer",
     "Config",
     "FlowFieldDataset",
+    "FlowFieldDataset3D",
+    "ChunkedFlowFieldDataset3D",
     "plot_prediction_vs_target",
 ]

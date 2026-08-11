@@ -1,3 +1,13 @@
 from .flow_field_dataset import FlowFieldDataset
+from .flow_field_dataset_3d import (
+    FlowFieldDataset3D,
+    ChunkedFlowFieldDataset3D,
+    ChunkAwareSampler,
+)
 
-__all__ = ["FlowFieldDataset"]
+__all__ = [
+    "FlowFieldDataset",
+    "FlowFieldDataset3D",
+    "ChunkedFlowFieldDataset3D",
+    "ChunkAwareSampler",
+]
