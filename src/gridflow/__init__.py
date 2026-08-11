@@ -31,7 +31,7 @@ from .utils import (
     overlay_obstacles_and_source,
     plot_vector_field,
     setup_axes,
-    solidify_obstacles,
+    solidify_pixels,
     plot_grid_3d,
     plot_time_map_3d,
     plot_vector_field_3d,
@@ -69,5 +69,5 @@ __all__ = [
     "overlay_obstacles_and_source",
     "plot_vector_field",
     "setup_axes",
-    "solidify_obstacles",
+    "solidify_pixels",
 ]

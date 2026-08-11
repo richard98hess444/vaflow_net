@@ -18,7 +18,7 @@ from .plotting import (
 )
 
 from .grid import (
-    solidify_obstacles,
+    solidify_pixels,
 )
 
 from .plotting_3d import (
@@ -46,7 +46,7 @@ __all__ = [
     "plot_vector_field",
     "plot_vector_field_on_grid",
     "plot_prediction_vs_target",
-    "solidify_obstacles",
+    "solidify_pixels",
     "plot_grid_3d",
     "plot_time_map_3d",
     "plot_vector_field_3d",

@@ -1,28 +1,31 @@
 import numpy as np
 
-def solidify_obstacles(grid, center=None, obstacle_val=1):
-    """Turn thin obstacle *surfaces* into *solid* obstacles via shadow casting.
 
-    A LiDAR only sees the surface of an obstacle that faces the robot, so the
-    region *behind* that surface stays "free" in the occupancy grid even though
-    the robot can never reach it. This function sits the robot at ``center`` and,
-    for every free cell, checks whether it has a clear line of sight back to the
-    robot. If the straight ray from the robot to the cell is blocked by an
-    obstacle, the cell is occluded and gets filled in as an obstacle.
+def solidify_pixels(grid, depth=4, samples_per_cell=2, center=None, obstacle_val=1):
+    """Fill the occluded band directly behind thin LiDAR surfaces.
+
+    For every cell, march toward the robot (``center``) up to ``depth`` cells; if
+    an obstacle is hit the cell is occluded and marked occupied. This fills a
+    gap-free band of thickness ~``depth`` behind each seen surface.
 
     Parameters
     ----------
     grid : np.ndarray
         2D occupancy grid. ``0`` = free, ``obstacle_val`` = obstacle.
+    depth : int
+        Band thickness in cells. ``0`` returns the grid unchanged.
+    samples_per_cell : int
+        Sub-steps per cell while marching, so diagonal rays can't slip between
+        diagonally-adjacent obstacles (``2`` is plenty).
     center : tuple[int, int] | None
         (row, col) of the robot. Defaults to the array centre.
     obstacle_val : int
-        The value used for obstacle cells. Free cells are assumed to be 0.
+        Value used for obstacle cells. Free cells are assumed to be 0.
 
     Returns
     -------
     np.ndarray
-        A new grid with the occluded cells filled in as solid obstacles.
+        A new grid with the occluded band filled in as solid obstacles.
     """
     grid = np.asarray(grid)
     n_rows, n_cols = grid.shape
