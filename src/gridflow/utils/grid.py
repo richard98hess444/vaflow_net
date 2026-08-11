@@ -34,14 +34,39 @@ def solidify_pixels(grid, depth=4, samples_per_cell=2, center=None, obstacle_val
     cr, cc = center
 
     filled = grid.copy()
+    if depth <= 0:
+        return filled
+
     obstacle = grid == obstacle_val
 
-    for r in range(n_rows):
-        for c in range(n_cols):
-            if obstacle[r, c]:
-                continue  # already a surface obstacle
-            if not _has_line_of_sight(obstacle, cr, cc, r, c):
-                filled[r, c] = obstacle_val
+    # Per-cell unit direction pointing toward the robot (center - cell).
+    ii, jj = np.meshgrid(
+        np.arange(n_rows, dtype=np.float64),
+        np.arange(n_cols, dtype=np.float64),
+        indexing="ij",
+    )
+    dr = cr - ii  # (n_rows, n_cols)
+    dc = cc - jj
+    dist = np.maximum(np.sqrt(dr * dr + dc * dc), 1e-6)
+    ur, uc = dr / dist, dc / dist
+
+    # March toward the robot; a cell is occluded if any sample lands on obstacle.
+    hit = np.zeros((n_rows, n_cols), dtype=bool)
+    steps = (
+        np.arange(1, depth * samples_per_cell + 1, dtype=np.float64) / samples_per_cell
+    )
+    for s in steps:
+        sr = np.rint(ii + s * ur).astype(np.int64)
+        sc = np.rint(jj + s * uc).astype(np.int64)
+        inb = (sr >= 0) & (sr < n_rows) & (sc >= 0) & (sc < n_cols)
+        # Stop at the robot: never march past the center, otherwise cells near
+        # the robot get occluded by obstacles on the *opposite* side.
+        inb &= s <= dist
+        sr = np.clip(sr, 0, n_rows - 1)
+        sc = np.clip(sc, 0, n_cols - 1)
+        hit |= obstacle[sr, sc] & inb
+
+    filled[hit] = obstacle_val
     return filled
 
 
