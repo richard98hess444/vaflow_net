@@ -14,6 +14,7 @@ from .plotting import (
     plot_path_on_thresholded_grid,
     plot_vector_field,
     plot_vector_field_on_grid,
+    plot_path_on_vector_field,
     plot_prediction_vs_target,
 )
 
@@ -46,6 +47,7 @@ __all__ = [
     "plot_path_on_thresholded_grid",
     "plot_vector_field",
     "plot_vector_field_on_grid",
+    "plot_path_on_vector_field",
     "plot_prediction_vs_target",
     "solidify_pixels",
     "solidify_voxels",

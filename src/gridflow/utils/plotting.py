@@ -379,6 +379,24 @@ def plot_vector_field_on_grid(
     plt.show()
 
 
+def plot_path_on_vector_field(
+    path, vectors, grid, source=None, positions=None, color="blue", draw_robot=True
+):
+    n = len(grid)
+    ax = _create_grid_axes(n)
+    overlay_obstacles_and_source(ax, grid, source, draw_robot=draw_robot)
+    overlay_thresholded_obstacles(ax, grid)
+    plot_vector_field(ax, np.asarray(vectors), positions=positions, color=color)
+
+    if path is not None and len(path):
+        ys = [p[0] for p in path]
+        xs = [p[1] for p in path]
+        ax.plot(xs, ys, color="orange", linewidth=2, zorder=1)
+        ax.scatter(xs, ys, color="orange", s=6, zorder=2)
+
+    plt.show()
+
+
 def plot_prediction_vs_target(
     pred_field, target_field, grid, goal=None, suptitle=None, pred_positions=None
 ):
