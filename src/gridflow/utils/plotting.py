@@ -78,11 +78,12 @@ def _draw_robot_footprint(ax: Axes, cr: int, cc: int):
     ax.add_patch(mpatches.Rectangle((cc - 0.5, cr - 2.5), 1, 1, color="red", zorder=3))
 
 
-def _overlay_center_and_source(ax: Axes, n: int, source=None):
+def _overlay_center_and_source(ax: Axes, n: int, source=None, draw_robot: bool = True):
     """Draw the center cell in red and the optional source cell in green."""
     cr, cc = n // 2, n // 2
 
-    _draw_robot_footprint(ax, cr, cc)
+    if draw_robot:
+        _draw_robot_footprint(ax, cr, cc)
     if source is not None:
         sr, sc = source
         ax.add_patch(
@@ -103,10 +104,12 @@ def _overlay_binary_obstacles(ax: Axes, grid: np.ndarray):
                 )
 
 
-def overlay_obstacles_and_source(ax: Axes, grid: np.ndarray, source=None):
+def overlay_obstacles_and_source(
+    ax: Axes, grid: np.ndarray, source=None, draw_robot=True
+):
     """Draw obstacles as black, the center cell as red, and the source as green."""
     _overlay_binary_obstacles(ax, grid)
-    _overlay_center_and_source(ax, len(grid), source)
+    _overlay_center_and_source(ax, len(grid), source, draw_robot=draw_robot)
 
 
 def overlay_thresholded_obstacles(ax: Axes, thresholded_grid):
@@ -126,7 +129,7 @@ def overlay_thresholded_obstacles(ax: Axes, thresholded_grid):
                 )
 
 
-def plot_grid(grid: np.ndarray, source=None):
+def plot_grid(grid: np.ndarray, source=None, draw_robot=True):
     """
     Visualize the thresholded grid.
 
@@ -138,12 +141,12 @@ def plot_grid(grid: np.ndarray, source=None):
     """
     n = len(grid)
     ax = _create_grid_axes(n)
-    overlay_obstacles_and_source(ax, grid, source)
+    overlay_obstacles_and_source(ax, grid, source, draw_robot=draw_robot)
     overlay_thresholded_obstacles(ax, grid)
     plt.show()
 
 
-def plot_directions(flow: list[list[str]], source=None):
+def plot_directions(flow: list[list[str]], source=None, draw_robot=True):
     """Plot flow arrows on a grid."""
     n = len(flow)
     data = np.zeros((n, n))
@@ -164,7 +167,7 @@ def plot_directions(flow: list[list[str]], source=None):
     ax.imshow(data, cmap="gray_r", interpolation="nearest", vmin=0, vmax=1)
 
     setup_axes(ax, n)
-    overlay_obstacles_and_source(ax, grid, source)
+    overlay_obstacles_and_source(ax, grid, source, draw_robot=draw_robot)
 
     font_size = max(6, int(72 / n))
     for r in range(n):
@@ -208,7 +211,7 @@ def _plot_scalar_map(
                 data[r][c] = (val - vmin) / (vmax - vmin) if vmax > vmin else 0.0
 
     ax = _create_grid_axes(n, data, cmap=cmap, vmin=0, vmax=1)
-    overlay_obstacles_and_source(ax, grid, source)
+    overlay_obstacles_and_source(ax, grid, source, draw_robot=False)
 
     font_size = max(6, int(72 / n))
     for r in range(n):
@@ -354,7 +357,9 @@ def plot_vector_field(ax: Axes, vectors, positions=None, color="blue"):
     return ax
 
 
-def plot_vector_field_on_grid(vectors, grid, source=None, color="blue"):
+def plot_vector_field_on_grid(
+    vectors, grid, source=None, color="blue", draw_robot=True
+):
     """Plot a flow/vector field over a binary grid with obstacles and source.
 
     Reuses the shared ``plot_vector_field`` quiver primitive so the arrow logic
@@ -368,7 +373,7 @@ def plot_vector_field_on_grid(vectors, grid, source=None, color="blue"):
     """
     n = len(grid)
     ax = _create_grid_axes(n)
-    overlay_obstacles_and_source(ax, grid, source)
+    overlay_obstacles_and_source(ax, grid, source, draw_robot=draw_robot)
     overlay_thresholded_obstacles(ax, grid)
     plot_vector_field(ax, np.asarray(vectors), color=color)
     plt.show()
@@ -397,10 +402,11 @@ def plot_prediction_vs_target(
         positions=None,
         color="blue",
         title=None,
+        draw_robot=True,
     ):
         n = len(grid)
         setup_axes(ax, n)
-        overlay_obstacles_and_source(ax, grid, source=source)
+        overlay_obstacles_and_source(ax, grid, source=source, draw_robot=draw_robot)
         overlay_thresholded_obstacles(ax, grid)
         plot_vector_field(ax, np.asarray(vectors), positions=positions, color=color)
         ax.set_xlim(-0.5, n - 0.5)
