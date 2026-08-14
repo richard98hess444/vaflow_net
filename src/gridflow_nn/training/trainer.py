@@ -68,9 +68,16 @@ class Trainer:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print(f"Using device: {self.device}")
 
-        self.model = self.model_cls(
-            base_channels=config.model_channels,
-        ).to(self.device)
+        self.query_fourier_bands = getattr(config, "query_fourier_bands", 0)
+        model_kwargs = {"base_channels": config.model_channels}
+        if self.dataset_key == "2d":
+            model_kwargs["fourier_bands"] = self.query_fourier_bands
+        self.model = self.model_cls(**model_kwargs).to(self.device)
+
+        self.query_points = getattr(config, "query_points", 0)
+        self.query_loss_weight = getattr(config, "query_loss_weight", 1.0)
+        self._use_query = self.query_points > 0 and hasattr(self.model, "forward_query")
+
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=config.lr)
         self.criterion = nn.MSELoss()
 

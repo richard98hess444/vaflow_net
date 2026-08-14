@@ -36,8 +36,9 @@ def load_model(ckpt_path, device=None):
 
     model = VectorFieldNet(
         base_channels=config.get("model_channels", 32),
+        fourier_bands=config.get("query_fourier_bands", 0),
     ).to(device)
-    model.load_state_dict(ckpt["model_state_dict"])
+    model.load_state_dict(ckpt["model_state_dict"], strict=False)
     model.eval()
 
     return model, config

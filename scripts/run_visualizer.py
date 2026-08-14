@@ -118,10 +118,11 @@ def load_model(ckpt_path, device):
     dataset_key = config.get("dataset", "2d")
 
     net_cls = VectorFieldNet3D if dataset_key == "3d" else VectorFieldNet
-    model = net_cls(
-        base_channels=config.get("model_channels", 32),
-    ).to(device)
-    model.load_state_dict(ckpt["model_state_dict"])
+    kwargs = {"base_channels": config.get("model_channels", 32)}
+    if dataset_key == "2d":
+        kwargs["fourier_bands"] = config.get("query_fourier_bands", 0)
+    model = net_cls(**kwargs).to(device)
+    model.load_state_dict(ckpt["model_state_dict"], strict=False)
     model.eval()
 
     return model, config, dataset_key

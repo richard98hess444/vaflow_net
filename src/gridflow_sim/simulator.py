@@ -355,8 +355,11 @@ class GridFlowSimulator:
                 "they must match to run inference on the local map."
             )
 
-        model = VectorFieldNet(base_channels=config.get("model_channels", 32))
-        model.load_state_dict(ckpt["model_state_dict"])
+        model = VectorFieldNet(
+            base_channels=config.get("model_channels", 32),
+            fourier_bands=config.get("query_fourier_bands", 0),
+        )
+        model.load_state_dict(ckpt["model_state_dict"], strict=False)
         model.to(self.device).eval()
         self.model = model
         return model
