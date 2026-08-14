@@ -102,3 +102,42 @@ def predict_full_field(
         pred = sampled.squeeze(-1).squeeze(0).transpose(0, 1)  # (R*R, 2)
 
     return pred.reshape(res, res, 2).cpu().numpy(), positions
+
+
+def predict_query_field(
+    model: VectorFieldNet,
+    grid_t: torch.Tensor,
+    goal_t: torch.Tensor,
+    grid_size: int,
+    device: torch.device,
+    positions,
+):
+    """Predict the flow vector(s) at continuous query location(s) via the model.
+
+    Args:
+        model: trained VectorFieldNet (with a query head).
+        grid_t: (1, n, n) obstacle grid tensor.
+        goal_t: (2,) normalized goal coordinates.
+        grid_size: n (kept for signature parity with predict_full_field).
+        device: torch device.
+        positions: (2,) or (M, 2) array of (row, col) query coordinates in cell
+            units (0 .. n-1); fractional values are allowed.
+
+    Returns:
+        A (2,) vector when a single position is given, else an (M, 2) array.
+    """
+    model.eval()
+
+    pos = np.asarray(positions, dtype=np.float32)
+    single = pos.ndim == 1
+    pos = np.atleast_2d(pos)  # (M, 2)
+
+    grid_b = grid_t.unsqueeze(0).to(device)  # (1, 1, n, n)
+    goal_b = goal_t.unsqueeze(0).to(device)  # (1, 2)
+    queries = torch.tensor(pos, dtype=torch.float32, device=device).unsqueeze(0)
+
+    with torch.no_grad():
+        vecs = model.forward_query(grid_b, goal_b, queries)  # (1, M, 2)
+
+    vecs = vecs.squeeze(0).cpu().numpy()
+    return vecs[0] if single else vecs
