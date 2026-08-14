@@ -334,7 +334,7 @@ class Trainer:
         # Restore and save the best model
         if best_state is not None:
             self.model.load_state_dict(best_state)
-        self.save()
+        self.save(self.ckpt_dir / "best.pt")
 
         return self.model, val_set, self.device
 

@@ -27,7 +27,8 @@ def main():
     config = Config()
 
     os.makedirs("models", exist_ok=True)
-    model_name = f"models/vfn_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.pt"
+    dataset_dim = config.dataset
+    model_name = f"models/vfn_{dataset_dim}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.pt"
     trainer = Trainer(config=config, save_path=model_name)
     model, val_set, device = trainer.train()
 
