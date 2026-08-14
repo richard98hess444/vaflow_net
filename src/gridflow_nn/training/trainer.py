@@ -222,6 +222,24 @@ class Trainer:
             )
         return train_loader, val_loader, val_set
 
+    def _sample_queries(self, target_t):
+        b, n, _, _ = target_t.shape
+        q = self.query_points
+        rows = torch.randint(0, n, (b, q), device=target_t.device)
+        cols = torch.randint(0, n, (b, q), device=target_t.device)
+        batch_idx = torch.arange(b, device=target_t.device).unsqueeze(1).expand(b, q)
+        q_targets = target_t[batch_idx, rows, cols]  # (B, Q, 2)
+        queries = torch.stack([rows, cols], dim=-1).float()  # (B, Q, 2)
+        return queries, q_targets
+
+    def _query_loss(self, grid_t, goal_t, target_t):
+        """MSE of the query head at sampled integer cells (0 when disabled)."""
+        if not self._use_query:
+            return grid_t.new_zeros(())
+        queries, q_targets = self._sample_queries(target_t)
+        q_pred = self.model.forward_query(grid_t, goal_t, queries)
+        return self.query_loss_weight * self.criterion(q_pred, q_targets)
+
     # ------------------------------------------------------------------------
     # Evaluation
     # ------------------------------------------------------------------------
@@ -238,6 +256,7 @@ class Trainer:
 
                 pred = self.model(grid_t, goal_t)
                 loss = self.criterion(pred, target_t)
+                loss = loss + self._query_loss(grid_t, goal_t, target_t)
                 total_loss += loss.item()
 
         return total_loss / max(len(loader), 1)
@@ -273,6 +292,7 @@ class Trainer:
 
                 pred = self.model(grid_t, goal_t)  # (B, n, n, 2)
                 loss = self.criterion(pred, target_t)
+                loss = loss + self._query_loss(grid_t, goal_t, target_t)
 
                 self.optimizer.zero_grad()
                 loss.backward()
@@ -338,6 +358,7 @@ class Trainer:
                 "model_channels": config.model_channels,
                 "grid_size": config.grid_size,
                 "dataset": self.dataset_key,
+                "query_fourier_bands": self.query_fourier_bands,
             },
             "best_val_loss": self.best_val_loss,
         }
