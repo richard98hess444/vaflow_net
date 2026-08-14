@@ -168,6 +168,12 @@ class VectorFieldNet(nn.Module):
         feat = self._encode(grid, goal)  # (B, C, H, W)
         return self.query_head(feat, queries, goal)
 
+    def forward_dense_query(self, grid, goal, queries):
+        """Dense field and query-head prediction from a single shared encode."""
+        feat = self._encode(grid, goal)  # (B, C, H, W)
+        dense = self.head(feat).permute(0, 2, 3, 1)  # (B, H, W, 2)
+        return dense, self.query_head(feat, queries, goal)
+
     def forward(self, grid, goal):
         dense_field = self.forward_dense(grid, goal)
         return dense_field

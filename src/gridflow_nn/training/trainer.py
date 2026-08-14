@@ -75,9 +75,8 @@ class Trainer:
         }
         self.model = self.model_cls(**model_kwargs).to(self.device)
 
-        self.query_points = getattr(config, "query_points", 0)
+        self.query_points = getattr(config, "query_points", 256)
         self.query_loss_weight = getattr(config, "query_loss_weight", 1.0)
-        self._use_query = self.query_points > 0 and hasattr(self.model, "forward_query")
 
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=config.lr)
         self.criterion = nn.MSELoss()
@@ -246,13 +245,12 @@ class Trainer:
         queries = torch.stack([rows, cols], dim=-1).float()  # (B, Q, 2)
         return queries, q_targets
 
-    def _query_loss(self, grid_t, goal_t, target_t):
-        """MSE of the query head at sampled integer cells (0 when disabled)."""
-        if not self._use_query:
-            return grid_t.new_zeros(())
+    def _compute_loss(self, grid_t, goal_t, target_t):
+        """Combined dense + query loss, sharing a single U-Net encode."""
         queries, q_targets = self._sample_queries(target_t)
-        q_pred = self.model.forward_query(grid_t, goal_t, queries)
-        return self.query_loss_weight * self.criterion(q_pred, q_targets)
+        pred, q_pred = self.model.forward_dense_query(grid_t, goal_t, queries)
+        loss = self.criterion(pred, target_t)
+        return loss + self.query_loss_weight * self.criterion(q_pred, q_targets)
 
     # ------------------------------------------------------------------------
     # Evaluation
@@ -268,9 +266,7 @@ class Trainer:
                 goal_t = goal_t.to(self.device)
                 target_t = target_t.to(self.device)
 
-                pred = self.model(grid_t, goal_t)
-                loss = self.criterion(pred, target_t)
-                loss = loss + self._query_loss(grid_t, goal_t, target_t)
+                loss = self._compute_loss(grid_t, goal_t, target_t)
                 total_loss += loss.item()
 
         return total_loss / max(len(loader), 1)
@@ -304,9 +300,7 @@ class Trainer:
                 goal_t = goal_t.to(self.device)
                 target_t = target_t.to(self.device)
 
-                pred = self.model(grid_t, goal_t)  # (B, n, n, 2)
-                loss = self.criterion(pred, target_t)
-                loss = loss + self._query_loss(grid_t, goal_t, target_t)
+                loss = self._compute_loss(grid_t, goal_t, target_t)
 
                 self.optimizer.zero_grad()
                 loss.backward()
