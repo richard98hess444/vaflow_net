@@ -36,8 +36,9 @@ def load_model_3d(ckpt_path, device=None):
 
     model = VectorFieldNet3D(
         base_channels=config.get("model_channels", 32),
+        fourier_bands=config.get("query_fourier_bands", 0),
     ).to(device)
-    model.load_state_dict(ckpt["model_state_dict"])
+    model.load_state_dict(ckpt["model_state_dict"], strict=False)
     model.eval()
 
     return model, config
@@ -83,9 +84,7 @@ def predict_full_field_3d(
 
         positions = np.arange(0, n - 1 + 1e-9, step)
         res = len(positions)
-        coords = [
-            [i, j, k] for i in positions for j in positions for k in positions
-        ]
+        coords = [[i, j, k] for i in positions for j in positions for k in positions]
         query = torch.tensor(coords, dtype=torch.float32) / (n - 1)
         query = query.to(device)
 
@@ -104,3 +103,42 @@ def predict_full_field_3d(
         pred = sampled.view(3, res * res * res).transpose(0, 1)  # (R^3, 3)
 
     return pred.reshape(res, res, res, 3).cpu().numpy(), positions
+
+
+def predict_query_field_3d(
+    model: VectorFieldNet3D,
+    grid_t: torch.Tensor,
+    goal_t: torch.Tensor,
+    grid_size: int,
+    device: torch.device,
+    positions,
+):
+    """Predict the flow vector(s) at continuous query location(s) via the model.
+
+    Args:
+        model: trained VectorFieldNet3D (with a query head).
+        grid_t: (1, n, n, n) obstacle grid tensor.
+        goal_t: (3,) normalized goal coordinates.
+        grid_size: n (kept for signature parity with predict_full_field_3d).
+        device: torch device.
+        positions: (3,) or (M, 3) array of (i, j, k) query coordinates in voxel
+            units (0 .. n-1); fractional values are allowed.
+
+    Returns:
+        A (3,) vector when a single position is given, else an (M, 3) array.
+    """
+    model.eval()
+
+    pos = np.asarray(positions, dtype=np.float32)
+    single = pos.ndim == 1
+    pos = np.atleast_2d(pos)  # (M, 3)
+
+    grid_b = grid_t.unsqueeze(0).to(device)  # (1, 1, n, n, n)
+    goal_b = goal_t.unsqueeze(0).to(device)  # (1, 3)
+    queries = torch.tensor(pos, dtype=torch.float32, device=device).unsqueeze(0)
+
+    with torch.no_grad():
+        vecs = model.forward_query(grid_b, goal_b, queries)  # (1, M, 3)
+
+    vecs = vecs.squeeze(0).cpu().numpy()
+    return vecs[0] if single else vecs

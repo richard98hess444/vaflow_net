@@ -69,9 +69,10 @@ class Trainer:
         print(f"Using device: {self.device}")
 
         self.query_fourier_bands = getattr(config, "query_fourier_bands", 0)
-        model_kwargs = {"base_channels": config.model_channels}
-        if self.dataset_key == "2d":
-            model_kwargs["fourier_bands"] = self.query_fourier_bands
+        model_kwargs = {
+            "base_channels": config.model_channels,
+            "fourier_bands": self.query_fourier_bands,
+        }
         self.model = self.model_cls(**model_kwargs).to(self.device)
 
         self.query_points = getattr(config, "query_points", 0)
@@ -223,6 +224,19 @@ class Trainer:
         return train_loader, val_loader, val_set
 
     def _sample_queries(self, target_t):
+        """Sample random integer cells and their target vectors for the query head."""
+        if self.dataset_key == "3d":
+            b, d, h, w, _ = target_t.shape
+            q = self.query_points
+            device = target_t.device
+            idx_i = torch.randint(0, d, (b, q), device=device)
+            idx_j = torch.randint(0, h, (b, q), device=device)
+            idx_k = torch.randint(0, w, (b, q), device=device)
+            batch_idx = torch.arange(b, device=device).unsqueeze(1).expand(b, q)
+            q_targets = target_t[batch_idx, idx_i, idx_j, idx_k]  # (B, Q, 3)
+            queries = torch.stack([idx_i, idx_j, idx_k], dim=-1).float()  # (B, Q, 3)
+            return queries, q_targets
+
         b, n, _, _ = target_t.shape
         q = self.query_points
         rows = torch.randint(0, n, (b, q), device=target_t.device)

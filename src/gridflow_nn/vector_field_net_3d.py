@@ -26,6 +26,62 @@ class ConvBlock3D(nn.Module):
         return self.block(x)
 
 
+class QueryHead3D(nn.Module):
+    def __init__(
+        self, feat_channels, out_dim=3, hidden=128, fourier_bands=0, coord_dim=6
+    ):
+        super().__init__()
+        self.fourier_bands = fourier_bands
+        enc_dim = coord_dim * (1 + 2 * fourier_bands)
+        self.mlp = nn.Sequential(
+            nn.Linear(feat_channels + enc_dim, hidden),
+            nn.ReLU(),
+            nn.Linear(hidden, hidden),
+            nn.ReLU(),
+            nn.Linear(hidden, out_dim),
+        )
+
+    def positional_encode(self, coords):
+        """coords (B, Q, D) -> (B, Q, D*(1+2F)) sinusoidal encoding (F = fourier_bands)."""
+        if self.fourier_bands == 0:
+            return coords
+        freqs = (
+            2.0
+            ** torch.arange(
+                self.fourier_bands, device=coords.device, dtype=coords.dtype
+            )
+        ) * torch.pi
+        scaled = coords.unsqueeze(-1) * freqs  # (B, Q, D, F)
+        enc = torch.cat([torch.sin(scaled), torch.cos(scaled)], dim=-1)  # (B, Q, D, 2F)
+        enc = enc.reshape(*coords.shape[:-1], -1)  # (B, Q, D*2F)
+        return torch.cat([coords, enc], dim=-1)  # (B, Q, D*(1+2F))
+
+    def forward(self, feat, queries, goal):
+        """feat (B,C,D,H,W); queries (B,Q,3) as (i,j,k) voxel units; goal (B,3) in [0,1]."""
+        _, _, d, h, w = feat.shape
+        denom = torch.tensor(
+            [d - 1, h - 1, w - 1], device=feat.device, dtype=feat.dtype
+        )
+        q_norm = queries / denom  # (B, Q, 3) as (i, j, k) in [0, 1]
+        # grid_sample wants (x, y, z) = (k, j, i) in [-1, 1]
+        sample_grid = (q_norm[..., [2, 1, 0]] * 2.0 - 1.0).view(
+            feat.shape[0], -1, 1, 1, 3
+        )  # (B, Q, 1, 1, 3)
+        sampled = F.grid_sample(
+            feat,
+            sample_grid,
+            mode="bilinear",  # trilinear for 5D input
+            padding_mode="border",
+            align_corners=True,
+        )  # (B, C, Q, 1, 1)
+        sampled = sampled.squeeze(-1).squeeze(-1).permute(0, 2, 1)  # (B, Q, C)
+
+        offset = q_norm - goal.unsqueeze(1)  # (B, Q, 3) goal-relative coords
+        coords = torch.cat([q_norm, offset], dim=-1)  # (B, Q, 6)
+        mlp_in = torch.cat([sampled, self.positional_encode(coords)], dim=-1)
+        return self.mlp(mlp_in)  # (B, Q, 3)
+
+
 class VectorFieldNet3D(nn.Module):
     """Dense obstacle-aware 3D vector-field predictor.
 
@@ -37,6 +93,8 @@ class VectorFieldNet3D(nn.Module):
         self,
         base_channels=32,
         out_dim=3,
+        query_hidden=128,
+        fourier_bands=0,
     ):
         super().__init__()
 
@@ -51,6 +109,13 @@ class VectorFieldNet3D(nn.Module):
         self.dec1 = ConvBlock3D(base_channels * 2 + base_channels, base_channels)
         self.pool = nn.MaxPool3d(kernel_size=2, stride=2)
         self.head = nn.Conv3d(base_channels, out_dim, kernel_size=1)
+
+        self.query_head = QueryHead3D(
+            base_channels,
+            out_dim=out_dim,
+            hidden=query_hidden,
+            fourier_bands=fourier_bands,
+        )
 
     @staticmethod
     def _build_input_features(grid, goal):
@@ -98,6 +163,11 @@ class VectorFieldNet3D(nn.Module):
         )
 
     def forward_dense(self, grid, goal):
+        dense = self.head(self._encode(grid, goal))  # (B, 3, D, H, W)
+        return dense.permute(0, 2, 3, 4, 1)  # (B, D, H, W, 3)
+
+    def _encode(self, grid, goal):
+        """Run the U-Net trunk and return the shared feature map (B, C, D, H, W)."""
         features = self._build_input_features(grid, goal)
 
         enc1 = self.enc1(features)
@@ -119,9 +189,12 @@ class VectorFieldNet3D(nn.Module):
             align_corners=False,
         )
         dec1 = self.dec1(torch.cat([up1, enc1], dim=1))
+        return dec1
 
-        dense = self.head(dec1)  # (B, 3, D, H, W)
-        return dense.permute(0, 2, 3, 4, 1)  # (B, D, H, W, 3)
+    def forward_query(self, grid, goal, queries):
+        """Predict the flow vector at arbitrary continuous query coordinates."""
+        feat = self._encode(grid, goal)  # (B, C, D, H, W)
+        return self.query_head(feat, queries, goal)
 
     def forward(self, grid, goal):
         dense_field = self.forward_dense(grid, goal)
