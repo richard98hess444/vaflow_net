@@ -81,6 +81,9 @@ class Trainer:
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=config.lr)
         self.criterion = nn.MSELoss()
 
+        self.use_amp = getattr(config, "use_amp", True) and self.device.type == "cuda"
+        self.scaler = torch.amp.GradScaler(self.device.type, enabled=self.use_amp)
+
         self.train_loss_history = []
         self.val_loss_history = []
         self.best_val_loss = float("inf")
@@ -266,7 +269,8 @@ class Trainer:
                 goal_t = goal_t.to(self.device)
                 target_t = target_t.to(self.device)
 
-                loss = self._compute_loss(grid_t, goal_t, target_t)
+                with torch.autocast(self.device.type, enabled=self.use_amp):
+                    loss = self._compute_loss(grid_t, goal_t, target_t)
                 total_loss += loss.item()
 
         return total_loss / max(len(loader), 1)
@@ -300,11 +304,12 @@ class Trainer:
                 goal_t = goal_t.to(self.device)
                 target_t = target_t.to(self.device)
 
-                loss = self._compute_loss(grid_t, goal_t, target_t)
-
                 self.optimizer.zero_grad()
-                loss.backward()
-                self.optimizer.step()
+                with torch.autocast(self.device.type, enabled=self.use_amp):
+                    loss = self._compute_loss(grid_t, goal_t, target_t)
+                self.scaler.scale(loss).backward()
+                self.scaler.step(self.optimizer)
+                self.scaler.update()
 
                 epoch_loss += loss.item()
 

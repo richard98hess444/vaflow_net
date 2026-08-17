@@ -13,6 +13,8 @@ class Config:
         self.model_channels = 32
         self.seed = 0
 
+        self.use_amp = True  # mixed-precision training on CUDA
+
         self.check_reachable = True
         self.use_dataset_cache = True  # generate once, then reuse from disk
 
