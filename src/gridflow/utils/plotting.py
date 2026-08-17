@@ -51,7 +51,13 @@ def setup_axes(ax: Axes, n: int, tick_step: int | None = None):
 
 
 def _create_grid_axes(
-    n: int, data=None, *, cmap: str = "gray_r", vmin: float = 0.0, vmax: float = 1.0
+    n: int,
+    data=None,
+    *,
+    cmap: str = "gray_r",
+    vmin: float = 0.0,
+    vmax: float = 1.0,
+    title: str | None = None,
 ) -> Axes:
     """Create a square grid plot with aligned axes and an optional background."""
     if data is None:
@@ -61,6 +67,8 @@ def _create_grid_axes(
     fig.set_size_inches(6, 6)
     ax.imshow(data, cmap=cmap, interpolation="nearest", vmin=vmin, vmax=vmax)
     setup_axes(ax, n)
+    if title:
+        ax.set_title(title)
     return ax
 
 
@@ -129,7 +137,7 @@ def overlay_thresholded_obstacles(ax: Axes, thresholded_grid):
                 )
 
 
-def plot_grid(grid: np.ndarray, source=None, draw_robot=True):
+def plot_grid(grid: np.ndarray, source=None, draw_robot=True, title=None):
     """
     Visualize the thresholded grid.
 
@@ -140,13 +148,13 @@ def plot_grid(grid: np.ndarray, source=None, draw_robot=True):
     - Green  = source
     """
     n = len(grid)
-    ax = _create_grid_axes(n)
+    ax = _create_grid_axes(n, title=title)
     overlay_obstacles_and_source(ax, grid, source, draw_robot=draw_robot)
     overlay_thresholded_obstacles(ax, grid)
     plt.show()
 
 
-def plot_directions(flow: list[list[str]], source=None, draw_robot=True):
+def plot_directions(flow: list[list[str]], source=None, draw_robot=True, title=None):
     """Plot flow arrows on a grid."""
     n = len(flow)
     data = np.zeros((n, n))
@@ -167,6 +175,8 @@ def plot_directions(flow: list[list[str]], source=None, draw_robot=True):
     ax.imshow(data, cmap="gray_r", interpolation="nearest", vmin=0, vmax=1)
 
     setup_axes(ax, n)
+    if title:
+        ax.set_title(title)
     overlay_obstacles_and_source(ax, grid, source, draw_robot=draw_robot)
 
     font_size = max(6, int(72 / n))
@@ -196,6 +206,7 @@ def _plot_scalar_map(
     label_fn,
     source=None,
     add_text: bool = True,
+    title=None,
 ):
     """Shared helper for scalar heatmap plots with text annotations."""
     n = len(grid)
@@ -210,7 +221,7 @@ def _plot_scalar_map(
             else:
                 data[r][c] = (val - vmin) / (vmax - vmin) if vmax > vmin else 0.0
 
-    ax = _create_grid_axes(n, data, cmap=cmap, vmin=0, vmax=1)
+    ax = _create_grid_axes(n, data, cmap=cmap, vmin=0, vmax=1, title=title)
     overlay_obstacles_and_source(ax, grid, source, draw_robot=False)
 
     font_size = max(6, int(72 / n))
@@ -238,7 +249,9 @@ def _plot_scalar_map(
     plt.show()
 
 
-def plot_strength_map(strength_map, grid, source=None, add_text: bool = True):
+def plot_strength_map(
+    strength_map, grid, source=None, add_text: bool = True, title=None
+):
     """Plot strength map with values as text."""
     _plot_scalar_map(
         strength_map,
@@ -249,10 +262,13 @@ def plot_strength_map(strength_map, grid, source=None, add_text: bool = True):
         lambda v: f"{v:.2f}",
         source,
         add_text=add_text,
+        title=title,
     )
 
 
-def plot_viscosity_map(viscosity_map, grid, source=None, add_text: bool = True):
+def plot_viscosity_map(
+    viscosity_map, grid, source=None, add_text: bool = True, title=None
+):
     """Plot viscosity map with values as text."""
     _plot_scalar_map(
         viscosity_map,
@@ -263,10 +279,13 @@ def plot_viscosity_map(viscosity_map, grid, source=None, add_text: bool = True):
         lambda v: f"{v:.2f}",
         source,
         add_text=add_text,
+        title=title,
     )
 
 
-def plot_filtered_map(filtered_strength_map, grid, source=None, add_text: bool = True):
+def plot_filtered_map(
+    filtered_strength_map, grid, source=None, add_text: bool = True, title=None
+):
     """Plot filtered strength map (strength x viscosity)."""
     _plot_scalar_map(
         filtered_strength_map,
@@ -277,10 +296,11 @@ def plot_filtered_map(filtered_strength_map, grid, source=None, add_text: bool =
         lambda v: f"{v:.2f}",
         source,
         add_text=add_text,
+        title=title,
     )
 
 
-def plot_time_map(time_map, grid, source=None, add_text: bool = True):
+def plot_time_map(time_map, grid, source=None, add_text: bool = True, title=None):
     """Plot a scalar time/arrival field over the grid.
 
     Negative entries mark blocked/unreachable cells (rendered as background).
@@ -295,10 +315,11 @@ def plot_time_map(time_map, grid, source=None, add_text: bool = True):
         lambda v: f"{v:.1f}",
         source,
         add_text=add_text,
+        title=title,
     )
 
 
-def plot_path_on_thresholded_grid(path, thresholded_grid, source=None):
+def plot_path_on_thresholded_grid(path, thresholded_grid, source=None, title=None):
     """
     Plot a path as dots on a thresholded grid.
 
@@ -309,7 +330,7 @@ def plot_path_on_thresholded_grid(path, thresholded_grid, source=None):
     - Orange dots/line = path from center to source
     """
     n = len(thresholded_grid)
-    ax = _create_grid_axes(n)
+    ax = _create_grid_axes(n, title=title)
     overlay_thresholded_obstacles(ax, thresholded_grid)
     _overlay_center_and_source(ax, n, source)
 
@@ -358,7 +379,7 @@ def plot_vector_field(ax: Axes, vectors, positions=None, color="blue"):
 
 
 def plot_vector_field_on_grid(
-    vectors, grid, source=None, color="blue", draw_robot=True
+    vectors, grid, source=None, color="blue", title=None, draw_robot=True
 ):
     """Plot a flow/vector field over a binary grid with obstacles and source.
 
@@ -372,7 +393,7 @@ def plot_vector_field_on_grid(
         color: arrow color.
     """
     n = len(grid)
-    ax = _create_grid_axes(n)
+    ax = _create_grid_axes(n, title=title)
     overlay_obstacles_and_source(ax, grid, source, draw_robot=draw_robot)
     overlay_thresholded_obstacles(ax, grid)
     plot_vector_field(ax, np.asarray(vectors), color=color)
@@ -380,10 +401,17 @@ def plot_vector_field_on_grid(
 
 
 def plot_path_on_vector_field(
-    path, vectors, grid, source=None, positions=None, color="blue", draw_robot=True
+    path,
+    vectors,
+    grid,
+    source=None,
+    positions=None,
+    color="blue",
+    draw_robot=True,
+    title=None,
 ):
     n = len(grid)
-    ax = _create_grid_axes(n)
+    ax = _create_grid_axes(n, title=title)
     overlay_obstacles_and_source(ax, grid, source, draw_robot=draw_robot)
     overlay_thresholded_obstacles(ax, grid)
     plot_vector_field(ax, np.asarray(vectors), positions=positions, color=color)
@@ -391,8 +419,8 @@ def plot_path_on_vector_field(
     if path is not None and len(path):
         ys = [p[0] for p in path]
         xs = [p[1] for p in path]
-        ax.plot(xs, ys, color="orange", linewidth=2, zorder=1)
-        ax.scatter(xs, ys, color="orange", s=6, zorder=2)
+        ax.plot(xs, ys, color="purple", linewidth=2, zorder=3)
+        ax.scatter(xs, ys, color="purple", s=6, zorder=3)
 
     plt.show()
 
