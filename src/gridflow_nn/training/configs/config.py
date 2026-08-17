@@ -13,8 +13,14 @@ class Config:
         self.model_channels = 32
         self.seed = 0
 
+        self.use_amp = True  # mixed-precision training on CUDA
+
         self.check_reachable = True
         self.use_dataset_cache = True  # generate once, then reuse from disk
+
+        self.query_points = 256
+        self.query_loss_weight = 1.0
+        self.query_fourier_bands = 6
 
         # 2D or 3D pipeline. Selects the dataset/model/predict fn.
         self.dataset = "3d"

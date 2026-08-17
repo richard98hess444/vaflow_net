@@ -68,11 +68,21 @@ class Trainer:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print(f"Using device: {self.device}")
 
-        self.model = self.model_cls(
-            base_channels=config.model_channels,
-        ).to(self.device)
+        self.query_fourier_bands = getattr(config, "query_fourier_bands", 0)
+        model_kwargs = {
+            "base_channels": config.model_channels,
+            "fourier_bands": self.query_fourier_bands,
+        }
+        self.model = self.model_cls(**model_kwargs).to(self.device)
+
+        self.query_points = getattr(config, "query_points", 256)
+        self.query_loss_weight = getattr(config, "query_loss_weight", 1.0)
+
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=config.lr)
         self.criterion = nn.MSELoss()
+
+        self.use_amp = getattr(config, "use_amp", True) and self.device.type == "cuda"
+        self.scaler = torch.amp.GradScaler(self.device.type, enabled=self.use_amp)
 
         self.train_loss_history = []
         self.val_loss_history = []
@@ -215,6 +225,36 @@ class Trainer:
             )
         return train_loader, val_loader, val_set
 
+    def _sample_queries(self, target_t):
+        """Sample random integer cells and their target vectors for the query head."""
+        if self.dataset_key == "3d":
+            b, d, h, w, _ = target_t.shape
+            q = self.query_points
+            device = target_t.device
+            idx_i = torch.randint(0, d, (b, q), device=device)
+            idx_j = torch.randint(0, h, (b, q), device=device)
+            idx_k = torch.randint(0, w, (b, q), device=device)
+            batch_idx = torch.arange(b, device=device).unsqueeze(1).expand(b, q)
+            q_targets = target_t[batch_idx, idx_i, idx_j, idx_k]  # (B, Q, 3)
+            queries = torch.stack([idx_i, idx_j, idx_k], dim=-1).float()  # (B, Q, 3)
+            return queries, q_targets
+
+        b, n, _, _ = target_t.shape
+        q = self.query_points
+        rows = torch.randint(0, n, (b, q), device=target_t.device)
+        cols = torch.randint(0, n, (b, q), device=target_t.device)
+        batch_idx = torch.arange(b, device=target_t.device).unsqueeze(1).expand(b, q)
+        q_targets = target_t[batch_idx, rows, cols]  # (B, Q, 2)
+        queries = torch.stack([rows, cols], dim=-1).float()  # (B, Q, 2)
+        return queries, q_targets
+
+    def _compute_loss(self, grid_t, goal_t, target_t):
+        """Combined dense + query loss, sharing a single U-Net encode."""
+        queries, q_targets = self._sample_queries(target_t)
+        pred, q_pred = self.model.forward_dense_query(grid_t, goal_t, queries)
+        loss = self.criterion(pred, target_t)
+        return loss + self.query_loss_weight * self.criterion(q_pred, q_targets)
+
     # ------------------------------------------------------------------------
     # Evaluation
     # ------------------------------------------------------------------------
@@ -229,8 +269,8 @@ class Trainer:
                 goal_t = goal_t.to(self.device)
                 target_t = target_t.to(self.device)
 
-                pred = self.model(grid_t, goal_t)
-                loss = self.criterion(pred, target_t)
+                with torch.autocast(self.device.type, enabled=self.use_amp):
+                    loss = self._compute_loss(grid_t, goal_t, target_t)
                 total_loss += loss.item()
 
         return total_loss / max(len(loader), 1)
@@ -264,12 +304,12 @@ class Trainer:
                 goal_t = goal_t.to(self.device)
                 target_t = target_t.to(self.device)
 
-                pred = self.model(grid_t, goal_t)  # (B, n, n, 2)
-                loss = self.criterion(pred, target_t)
-
                 self.optimizer.zero_grad()
-                loss.backward()
-                self.optimizer.step()
+                with torch.autocast(self.device.type, enabled=self.use_amp):
+                    loss = self._compute_loss(grid_t, goal_t, target_t)
+                self.scaler.scale(loss).backward()
+                self.scaler.step(self.optimizer)
+                self.scaler.update()
 
                 epoch_loss += loss.item()
 
@@ -307,7 +347,7 @@ class Trainer:
         # Restore and save the best model
         if best_state is not None:
             self.model.load_state_dict(best_state)
-        self.save()
+        self.save(self.ckpt_dir / "best.pt")
 
         return self.model, val_set, self.device
 
@@ -331,6 +371,7 @@ class Trainer:
                 "model_channels": config.model_channels,
                 "grid_size": config.grid_size,
                 "dataset": self.dataset_key,
+                "query_fourier_bands": self.query_fourier_bands,
             },
             "best_val_loss": self.best_val_loss,
         }
