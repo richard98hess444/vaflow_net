@@ -13,6 +13,7 @@ import torch
 import torch.nn.functional as F
 
 from .vector_field_net_3d import VectorFieldNet3D
+from .integration import integrate_path
 
 
 def load_model_3d(ckpt_path, device=None):
@@ -142,3 +143,79 @@ def predict_query_field_3d(
 
     vecs = vecs.squeeze(0).cpu().numpy()
     return vecs[0] if single else vecs
+
+
+def predict_path_3d(
+    model: VectorFieldNet3D,
+    grid_t: torch.Tensor,
+    goal_t: torch.Tensor,
+    grid_size: int,
+    device: torch.device,
+    start,
+    goal=None,
+    method: str = "rk4",
+    step_size: float = 2.0,
+    max_steps: int = 50,
+    stop_radius: float = 1.0,
+    downsample_factor: int = 1,
+):
+    """Trace a path by following the 3D model's flow field from ``start`` to ``goal``.
+
+    Args:
+        model, grid_t, goal_t, grid_size, device: as for ``predict_query_field_3d``.
+        start: (3,) start point in full-resolution voxel units.
+        goal: (3,) goal in full-resolution voxel units for the stop test.
+            Defaults to the goal implied by ``goal_t`` and the grid resolution.
+        method: "rk4" or "euler".
+        step_size, stop_radius: in the (downsampled) grid's voxel units.
+        max_steps: iteration cap.
+        downsample_factor: run the model on a coarsened ``[::f, ::f, ::f]`` grid
+            (>= 1) for speed. ``start``/``goal`` and the returned path stay in
+            full-resolution voxel units; only the resolution the model sees changes.
+
+    Returns:
+        (M, 3) numpy array of trajectory points in full-resolution voxel units.
+    """
+    df = max(1, int(downsample_factor))
+    full_spatial = np.array(grid_t.shape[-3:], dtype=float)  # full-res (D, H, W)
+    if df > 1:
+        grid_t = grid_t[..., ::df, ::df, ::df]  # coarse obstacle volume
+
+    spatial = np.array(grid_t.shape[-3:], dtype=float)  # (D, H, W) of the grid used
+
+    def _is_inside(p, size):
+        p = np.asarray(p, dtype=float)
+        return np.all((p >= 0) & (p < size))
+
+    if goal is None or not _is_inside(goal, full_spatial):
+        goal = goal_t.detach().cpu().numpy() * (spatial - 1.0)  # coarse voxel coords
+    else:
+        goal = np.asarray(goal, dtype=float) / df
+
+    start = np.asarray(start, dtype=float) / df
+
+    # encode the (coarse) grid once; every query along the path reuses this feature
+    grid_b = grid_t.unsqueeze(0).to(device)  # (1, 1, D, H, W)
+    goal_b = goal_t.unsqueeze(0).to(device)  # (1, 3)
+    model.eval()
+    with torch.no_grad():
+        feat = model.encode(grid_b, goal_b)
+
+    def field_fn(p):
+        q = torch.tensor(
+            np.atleast_2d(p), dtype=torch.float32, device=device
+        ).unsqueeze(0)  # (1, 1, 3)
+        with torch.no_grad():
+            vecs = model.query(feat, q, goal_b)  # (1, 1, 3)
+        return vecs[0, 0].cpu().numpy()  # (3,)
+
+    path = integrate_path(
+        field_fn,
+        start,
+        goal,
+        method=method,
+        step_size=step_size,
+        max_steps=max_steps,
+        stop_radius=stop_radius,
+    )
+    return path * df  # coarse -> full-resolution voxel units
