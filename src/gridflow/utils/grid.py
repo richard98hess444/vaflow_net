@@ -1,4 +1,40 @@
+import functools
+
 import numpy as np
+
+
+@functools.lru_cache(maxsize=16)
+def _march_indices(shape, center, depth, samples_per_cell):
+    """Precompute per-step flattened sample indices for the occlusion march.
+
+    The ray geometry depends only on ``shape``/``center``/``depth`` (fixed across
+    frames), so it is computed once and cached. Samples that fall out of bounds
+    or past the robot map to a sentinel slot (``prod(shape)``) so a padded
+    obstacle array reads them as free. Returns an ``(num_steps, prod(shape))``
+    int32 index array shared by :func:`solidify_pixels` / :func:`solidify_voxels`.
+    """
+    ndim = len(shape)
+    coords = np.meshgrid(
+        *[np.arange(s, dtype=np.float64) for s in shape], indexing="ij"
+    )
+    deltas = [center[a] - coords[a] for a in range(ndim)]
+    dist = np.maximum(np.sqrt(sum(d * d for d in deltas)), 1e-6)
+    units = [d / dist for d in deltas]
+
+    n = int(np.prod(shape))
+    steps = (
+        np.arange(1, depth * samples_per_cell + 1, dtype=np.float64) / samples_per_cell
+    )
+    idx = np.empty((len(steps), n), dtype=np.int32)
+    for t, s in enumerate(steps):
+        samp = [np.rint(coords[a] + s * units[a]).astype(np.int64) for a in range(ndim)]
+        inb = s <= dist
+        for a in range(ndim):
+            inb = inb & (samp[a] >= 0) & (samp[a] < shape[a])
+        clipped = [np.clip(samp[a], 0, shape[a] - 1) for a in range(ndim)]
+        flat = np.ravel_multi_index(clipped, shape)
+        idx[t] = np.where(inb, flat, n).ravel()
+    return idx
 
 
 def solidify_pixels(grid, depth=4, samples_per_cell=2, center=None, obstacle_val=1):
@@ -28,43 +64,18 @@ def solidify_pixels(grid, depth=4, samples_per_cell=2, center=None, obstacle_val
         A new grid with the occluded band filled in as solid obstacles.
     """
     grid = np.asarray(grid)
-    n_rows, n_cols = grid.shape
     if center is None:
-        center = (n_rows // 2, n_cols // 2)
-    cr, cc = center
+        center = tuple(s // 2 for s in grid.shape)
 
     filled = grid.copy()
     if depth <= 0:
         return filled
 
-    obstacle = grid == obstacle_val
-
-    # Per-cell unit direction pointing toward the robot (center - cell).
-    ii, jj = np.meshgrid(
-        np.arange(n_rows, dtype=np.float64),
-        np.arange(n_cols, dtype=np.float64),
-        indexing="ij",
-    )
-    dr = cr - ii  # (n_rows, n_cols)
-    dc = cc - jj
-    dist = np.maximum(np.sqrt(dr * dr + dc * dc), 1e-6)
-    ur, uc = dr / dist, dc / dist
-
-    # March toward the robot; a cell is occluded if any sample lands on obstacle.
-    hit = np.zeros((n_rows, n_cols), dtype=bool)
-    steps = (
-        np.arange(1, depth * samples_per_cell + 1, dtype=np.float64) / samples_per_cell
-    )
-    for s in steps:
-        sr = np.rint(ii + s * ur).astype(np.int64)
-        sc = np.rint(jj + s * uc).astype(np.int64)
-        inb = (sr >= 0) & (sr < n_rows) & (sc >= 0) & (sc < n_cols)
-        # Stop at the robot: never march past the center, otherwise cells near
-        # the robot get occluded by obstacles on the *opposite* side.
-        inb &= s <= dist
-        sr = np.clip(sr, 0, n_rows - 1)
-        sc = np.clip(sc, 0, n_cols - 1)
-        hit |= obstacle[sr, sc] & inb
+    # Geometry (shape/center/depth) is fixed across frames, so the ray-march
+    # sample indices are cached; each call only gathers the obstacle mask.
+    idx = _march_indices(grid.shape, tuple(center), depth, samples_per_cell)
+    obstacle = np.append((grid == obstacle_val).ravel(), False)  # sentinel = free
+    hit = obstacle[idx].any(axis=0).reshape(grid.shape)
 
     filled[hit] = obstacle_val
     return filled
@@ -99,47 +110,18 @@ def solidify_voxels(grid, depth=6, samples_per_cell=2, center=None, obstacle_val
         A new grid with the occluded shell filled in as solid obstacles.
     """
     grid = np.asarray(grid)
-    nx, ny, nz = grid.shape
     if center is None:
-        center = (nx // 2, ny // 2, nz // 2)
-    cx, cy, cz = center
+        center = tuple(s // 2 for s in grid.shape)
 
     filled = grid.copy()
     if depth <= 0:
         return filled
 
-    obstacle = grid == obstacle_val
-
-    # Per-voxel unit direction pointing toward the robot (center - voxel).
-    ii, jj, kk = np.meshgrid(
-        np.arange(nx, dtype=np.float64),
-        np.arange(ny, dtype=np.float64),
-        np.arange(nz, dtype=np.float64),
-        indexing="ij",
-    )
-    dx = cx - ii  # (nx, ny, nz)
-    dy = cy - jj
-    dz = cz - kk
-    dist = np.maximum(np.sqrt(dx * dx + dy * dy + dz * dz), 1e-6)
-    ux, uy, uz = dx / dist, dy / dist, dz / dist
-
-    # March toward the robot; a voxel is occluded if any sample lands on obstacle.
-    hit = np.zeros((nx, ny, nz), dtype=bool)
-    steps = (
-        np.arange(1, depth * samples_per_cell + 1, dtype=np.float64) / samples_per_cell
-    )
-    for s in steps:
-        sx = np.rint(ii + s * ux).astype(np.int64)
-        sy = np.rint(jj + s * uy).astype(np.int64)
-        sz = np.rint(kk + s * uz).astype(np.int64)
-        inb = (sx >= 0) & (sx < nx) & (sy >= 0) & (sy < ny) & (sz >= 0) & (sz < nz)
-        # Stop at the robot: never march past the center, otherwise voxels near
-        # the robot get occluded by obstacles on the *opposite* side.
-        inb &= s <= dist
-        sx = np.clip(sx, 0, nx - 1)
-        sy = np.clip(sy, 0, ny - 1)
-        sz = np.clip(sz, 0, nz - 1)
-        hit |= obstacle[sx, sy, sz] & inb
+    # Geometry (shape/center/depth) is fixed across frames, so the ray-march
+    # sample indices are cached; each call only gathers the obstacle mask.
+    idx = _march_indices(grid.shape, tuple(center), depth, samples_per_cell)
+    obstacle = np.append((grid == obstacle_val).ravel(), False)  # sentinel = free
+    hit = obstacle[idx].any(axis=0).reshape(grid.shape)
 
     filled[hit] = obstacle_val
     return filled

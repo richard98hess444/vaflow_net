@@ -8,8 +8,14 @@ the ``gridflow`` core package, which stays torch-free (numpy + matplotlib only).
 
 from .vector_field_net import VectorFieldNet, ConvBlock, QueryHead
 from .vector_field_net_3d import VectorFieldNet3D, ConvBlock3D, QueryHead3D
-from .inference import load_model, predict_full_field, predict_query_field
-from .inference_3d import load_model_3d, predict_full_field_3d, predict_query_field_3d
+from .inference import load_model, predict_full_field, predict_query_field, predict_path
+from .inference_3d import (
+    load_model_3d,
+    predict_full_field_3d,
+    predict_query_field_3d,
+    predict_path_3d,
+)
+from .integration import eul_integrate, rk4_integrate, integrate_path
 
 __all__ = [
     "VectorFieldNet",
@@ -21,7 +27,12 @@ __all__ = [
     "load_model",
     "predict_full_field",
     "predict_query_field",
+    "predict_path",
     "load_model_3d",
     "predict_full_field_3d",
     "predict_query_field_3d",
+    "predict_path_3d",
+    "eul_integrate",
+    "rk4_integrate",
+    "integrate_path",
 ]

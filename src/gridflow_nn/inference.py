@@ -13,6 +13,7 @@ import torch
 import torch.nn.functional as F
 
 from .vector_field_net import VectorFieldNet
+from .integration import integrate_path
 
 
 def load_model(ckpt_path, device=None):
@@ -141,3 +142,79 @@ def predict_query_field(
 
     vecs = vecs.squeeze(0).cpu().numpy()
     return vecs[0] if single else vecs
+
+
+def predict_path(
+    model: VectorFieldNet,
+    grid_t: torch.Tensor,
+    goal_t: torch.Tensor,
+    grid_size: int,
+    device: torch.device,
+    start,
+    goal=None,
+    method: str = "rk4",
+    step_size: float = 0.5,
+    max_steps: int = 200,
+    stop_radius: float = 1.0,
+    downsample_factor: int = 1,
+):
+    """Trace a path by following the model's flow field from ``start`` to ``goal``.
+
+    Args:
+        model, grid_t, goal_t, grid_size, device: as for ``predict_query_field``.
+        start: (2,) start point in full-resolution cell units.
+        goal: (2,) goal in full-resolution cell units for the stop test.
+            Defaults to the goal implied by ``goal_t`` and the grid resolution.
+        method: "rk4" or "euler".
+        step_size, stop_radius: in the (downsampled) grid's cell units.
+        max_steps: iteration cap.
+        downsample_factor: run the model on a coarsened ``[::f, ::f]`` grid
+            (>= 1) for speed. ``start``/``goal`` and the returned path stay in
+            full-resolution cell units; only the resolution the model sees changes.
+
+    Returns:
+        (M, 2) numpy array of trajectory points in full-resolution cell units.
+    """
+    df = max(1, int(downsample_factor))
+    full_spatial = np.array(grid_t.shape[-2:], dtype=float)  # full-res (H, W)
+    if df > 1:
+        grid_t = grid_t[..., ::df, ::df]  # coarse obstacle map
+
+    spatial = np.array(grid_t.shape[-2:], dtype=float)  # (H, W) of the grid used
+
+    def _is_inside(p, size):
+        p = np.asarray(p, dtype=float)
+        return np.all((p >= 0) & (p < size))
+
+    if goal is None or not _is_inside(goal, full_spatial):
+        goal = goal_t.detach().cpu().numpy() * (spatial - 1.0)  # coarse cell coords
+    else:
+        goal = np.asarray(goal, dtype=float) / df
+
+    start = np.asarray(start, dtype=float) / df
+
+    # encode the (coarse) grid once; every query along the path reuses this feature
+    grid_b = grid_t.unsqueeze(0).to(device)  # (1, 1, H, W)
+    goal_b = goal_t.unsqueeze(0).to(device)  # (1, 2)
+    model.eval()
+    with torch.no_grad():
+        feat = model.encode(grid_b, goal_b)
+
+    def field_fn(p):
+        q = torch.tensor(
+            np.atleast_2d(p), dtype=torch.float32, device=device
+        ).unsqueeze(0)  # (1, 1, 2)
+        with torch.no_grad():
+            vecs = model.query(feat, q, goal_b)  # (1, 1, 2)
+        return vecs[0, 0].cpu().numpy()  # (2,)
+
+    path = integrate_path(
+        field_fn,
+        start,
+        goal,
+        method=method,
+        step_size=step_size,
+        max_steps=max_steps,
+        stop_radius=stop_radius,
+    )
+    return path * df  # coarse -> full-resolution cell units
