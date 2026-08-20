@@ -163,10 +163,17 @@ class VectorFieldNet(nn.Module):
         dense = self.head(self._encode(grid, goal))
         return dense.permute(0, 2, 3, 1)  # (B, 1, H, W) -> (B, H, W, 2)
 
+    def encode(self, grid, goal):
+        """Run the U-Net trunk once; reuse the returned feature for many queries."""
+        return self._encode(grid, goal)
+
+    def query(self, feat, queries, goal):
+        """Flow at continuous coords from a precomputed feature map (see ``encode``)."""
+        return self.query_head(feat, queries, goal)
+
     def forward_query(self, grid, goal, queries):
         """Predict the flow vector at arbitrary continuous query coordinates."""
-        feat = self._encode(grid, goal)  # (B, C, H, W)
-        return self.query_head(feat, queries, goal)
+        return self.query(self.encode(grid, goal), queries, goal)
 
     def forward_dense_query(self, grid, goal, queries):
         """Dense field and query-head prediction from a single shared encode."""

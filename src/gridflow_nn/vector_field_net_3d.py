@@ -191,10 +191,17 @@ class VectorFieldNet3D(nn.Module):
         dec1 = self.dec1(torch.cat([up1, enc1], dim=1))
         return dec1
 
+    def encode(self, grid, goal):
+        """Run the U-Net trunk once; reuse the returned feature for many queries."""
+        return self._encode(grid, goal)
+
+    def query(self, feat, queries, goal):
+        """Flow at continuous coords from a precomputed feature map (see ``encode``)."""
+        return self.query_head(feat, queries, goal)
+
     def forward_query(self, grid, goal, queries):
         """Predict the flow vector at arbitrary continuous query coordinates."""
-        feat = self._encode(grid, goal)  # (B, C, D, H, W)
-        return self.query_head(feat, queries, goal)
+        return self.query(self.encode(grid, goal), queries, goal)
 
     def forward_dense_query(self, grid, goal, queries):
         """Dense field and query-head prediction from a single shared encode."""
