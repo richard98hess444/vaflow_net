@@ -26,6 +26,7 @@ import numpy as np
 
 from .flow import WaterFlow
 from .eikonal import Eikonal
+from .navier_stokes import NavierStokes
 from .sdf import SignedDistanceField
 
 # Default artificial-potential-field repulsion parameters. Kept here so every
@@ -58,6 +59,7 @@ class VectorFieldGuidance:
     ):
         self.wf = WaterFlow()
         self.eik = Eikonal()
+        self.ns = NavierStokes(viscosity=0.9, dt=0.1, source_rate=0.05, num_steps=100)
         self.sdf = SignedDistanceField()
         self.influence = influence
         self.gain = gain
@@ -93,6 +95,26 @@ class VectorFieldGuidance:
         )
 
         guidance = gradient_map + repulsive_force_map
+        guidance[goal[0], goal[1]] = np.array([0.0, 0.0])
+        return guidance.astype(np.float32)
+
+    def ns_method(self, grid: np.ndarray, goal: tuple[int, int]) -> np.ndarray:
+        """Build the guidance field from the incompressible Navier-Stokes flow.
+
+        Returns the unit Navier-Stokes flow direction plus the SDF repulsion
+        (as in :meth:`eik_method`). Pure incompressible flow tends to graze
+        walls that lie between it and the goal, so the repulsion (strength
+        ``gain``) restores obstacle clearance.
+
+        Args:
+            grid: (n, n) numpy array where 0=free, 1=obstacle.
+            goal: (row, col) target cell the field should guide toward.
+
+        Returns:
+            guidance: (n, n, 2) float32 array of (drow, dcol) guidance vectors.
+        """
+        velocity = self.ns.compute_velocity_field(grid, goal=goal)
+        guidance = self.ns.compute_flow_field(velocity, grid)
         guidance[goal[0], goal[1]] = np.array([0.0, 0.0])
         return guidance.astype(np.float32)
 

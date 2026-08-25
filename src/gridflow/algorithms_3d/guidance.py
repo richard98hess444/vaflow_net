@@ -5,11 +5,12 @@ source of truth for how a target ``(di, dj, dk)`` guidance field is built from a
 voxel grid and a goal, bundling the 3D solvers and the attraction/repulsion
 configuration together.
 
-:class:`VectorFieldGuidance3D` exposes two interchangeable strategies:
+:class:`VectorFieldGuidance3D` exposes three interchangeable strategies:
 
   * :meth:`eik_method` -- the Eikonal shortest-path gradient (attraction toward
     the goal) plus the SDF artificial-potential-field repulsion (push away from
-    obstacles), and
+    obstacles),
+  * :meth:`ns_method` -- the incompressible Navier-Stokes flow direction, and
   * :meth:`bfs_method` -- the original WaterFlow pipeline.
 
 Construct one instance and reuse it; the held solvers and the ``influence`` /
@@ -21,6 +22,7 @@ import time
 
 from .flow import WaterFlow3D
 from .eikonal import Eikonal3D
+from .navier_stokes import NavierStokes3D
 from .sdf import SignedDistanceField3D
 
 DEFAULT_INFLUENCE = 3.0
@@ -53,6 +55,7 @@ class VectorFieldGuidance3D:
     ):
         self.wf = WaterFlow3D()
         self.eik = Eikonal3D()
+        self.ns = NavierStokes3D(viscosity=0.9, dt=0.1, source_rate=0.05, num_steps=100)
         self.sdf = SignedDistanceField3D()
         self.influence = influence
         self.gain = gain
@@ -89,6 +92,27 @@ class VectorFieldGuidance3D:
         )
 
         guidance = gradient_map + repulsive_force_map
+        guidance[goal] = np.array([0.0, 0.0, 0.0])
+        return guidance.astype(np.float32)
+
+    def ns_method(self, grid: np.ndarray, goal: tuple[int, int, int]) -> np.ndarray:
+        """Build the guidance field from the incompressible Navier-Stokes flow.
+
+        Returns the unit Navier-Stokes flow direction plus the SDF repulsion
+        (as in :meth:`eik_method`). Pure incompressible flow tends to graze
+        walls that lie between it and the goal, so the repulsion (strength
+        ``gain``) restores obstacle clearance.
+
+        Args:
+            grid: (n, n, n) numpy array where 0=free, 1=obstacle.
+            goal: (i, j, k) target voxel the field should guide toward.
+
+        Returns:
+            guidance: (n, n, n, 3) float32 array of (di, dj, dk) guidance
+                vectors.
+        """
+        velocity = self.ns.compute_velocity_field(grid, goal=goal)
+        guidance = self.ns.compute_flow_field(velocity, grid)
         guidance[goal] = np.array([0.0, 0.0, 0.0])
         return guidance.astype(np.float32)
 
