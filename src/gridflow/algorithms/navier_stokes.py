@@ -179,6 +179,20 @@ class NavierStokes(BreadthFirstSearch):
         vr[-1, :] = 0.0
         vc[:, 0] = 0.0
         vc[:, -1] = 0.0
+
+        east = np.zeros_like(fluid)
+        east[:, :-1] = solid[:, 1:]
+        west = np.zeros_like(fluid)
+        west[:, 1:] = solid[:, :-1]
+        down = np.zeros_like(fluid)
+        down[:-1, :] = solid[1:, :]
+        up = np.zeros_like(fluid)
+        up[1:, :] = solid[:-1, :]
+
+        vc = np.where(east & (vc > 0.0), 0.0, vc)
+        vc = np.where(west & (vc < 0.0), 0.0, vc)
+        vr = np.where(down & (vr > 0.0), 0.0, vr)
+        vr = np.where(up & (vr < 0.0), 0.0, vr)
         return vr, vc
 
     # ------------------------------------------------------------------
@@ -270,7 +284,7 @@ class NavierStokes(BreadthFirstSearch):
                 vr[fluid] = diffuse_solve(vr[fluid])
                 vc[fluid] = diffuse_solve(vc[fluid])
             vr, vc, pressure = self._project(vr, vc, fluid, q, project_solve, pins)
-            vr, vc = self._seal_domain(vr, vc)
+            vr, vc = self._seal_domain(vr, vc, fluid)
 
         # Steady-state pressure: low (0) at the goal outlet, high far away.
         self.pressure_ = pressure

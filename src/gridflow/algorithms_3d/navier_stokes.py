@@ -151,14 +151,35 @@ class NavierStokes3D(BreadthFirstSearch3D):
         return vi, vj, vk, p_flat
 
     @staticmethod
-    def _seal_domain(vi, vj, vk):
-        """Zero the wall-normal velocity on the six domain faces."""
+    def _seal_domain(vi, vj, vk, fluid):
+        """Zero the wall-normal velocity at every wall face (no-penetration)."""
+        solid = ~fluid
         vi[0, :, :] = 0.0
         vi[-1, :, :] = 0.0
         vj[:, 0, :] = 0.0
         vj[:, -1, :] = 0.0
         vk[:, :, 0] = 0.0
         vk[:, :, -1] = 0.0
+
+        ip = np.zeros_like(fluid)
+        ip[:-1, :, :] = solid[1:, :, :]
+        im = np.zeros_like(fluid)
+        im[1:, :, :] = solid[:-1, :, :]
+        jp = np.zeros_like(fluid)
+        jp[:, :-1, :] = solid[:, 1:, :]
+        jm = np.zeros_like(fluid)
+        jm[:, 1:, :] = solid[:, :-1, :]
+        kp = np.zeros_like(fluid)
+        kp[:, :, :-1] = solid[:, :, 1:]
+        km = np.zeros_like(fluid)
+        km[:, :, 1:] = solid[:, :, :-1]
+
+        vi = np.where(ip & (vi > 0.0), 0.0, vi)
+        vi = np.where(im & (vi < 0.0), 0.0, vi)
+        vj = np.where(jp & (vj > 0.0), 0.0, vj)
+        vj = np.where(jm & (vj < 0.0), 0.0, vj)
+        vk = np.where(kp & (vk > 0.0), 0.0, vk)
+        vk = np.where(km & (vk < 0.0), 0.0, vk)
         return vi, vj, vk
 
     # ------------------------------------------------------------------
@@ -235,7 +256,7 @@ class NavierStokes3D(BreadthFirstSearch3D):
                 vj[fluid], _ = cg(a_diff, vj[fluid], x0=vj[fluid], rtol=self.cg_tol, maxiter=self.cg_maxiter)
                 vk[fluid], _ = cg(a_diff, vk[fluid], x0=vk[fluid], rtol=self.cg_tol, maxiter=self.cg_maxiter)
             vi, vj, vk, p_prev = self._project(vi, vj, vk, fluid, q, a_p, p_prev)
-            vi, vj, vk = self._seal_domain(vi, vj, vk)
+            vi, vj, vk = self._seal_domain(vi, vj, vk, fluid)
 
         # Steady-state pressure: low at the goal outlet, high far away.
         pressure = np.zeros((n, n, n))
