@@ -1,17 +1,11 @@
-"""Ground-truth guidance vector field shared across the whole workspace.
+"""2D ground-truth guidance vector field.
 
-This is the single source of truth for how a target (drow, dcol) guidance field
-is built from a grid and a goal. It is reused by:
+The 2D counterpart of :mod:`gridflow.algorithms_3d.guidance`. It is the single
+source of truth for how a target ``(drow, dcol)`` guidance field is built from a
+grid and a goal, bundling the 2D solvers and the attraction/repulsion
+configuration together.
 
-  * the training dataset (``gridflow_nn/training/dataloader/flow_field_dataset.py``),
-  * the live simulator (``gridflow_sim/simulator.py``), and
-  * the exploratory notebooks (``notebook/*.ipynb``),
-
-so every part of the project trains against and evaluates the exact same target.
-
-:class:`VectorFieldGuidance` bundles the solver instances and the
-attraction/repulsion configuration together and exposes two interchangeable
-strategies for producing that target:
+:class:`VectorFieldGuidance` exposes three interchangeable strategies:
 
   * :meth:`eik_method` -- the Eikonal shortest-path gradient (attraction toward
     the goal) plus the SDF artificial-potential-field repulsion (push away from
@@ -20,7 +14,7 @@ strategies for producing that target:
   * :meth:`bfs_method` -- the original WaterFlow pipeline.
 
 Construct one instance and reuse it; the held solvers and the ``influence`` /
-``gain`` repulsion parameters are then shared across every call.
+``gain`` repulsion parameters are then shared across every guidance call.
 """
 
 import numpy as np
@@ -41,12 +35,6 @@ DEFAULT_NS_FORCE_BOUNDARY = 3.0
 
 class VectorFieldGuidance:
     """Build ground-truth guidance fields, holding the solvers and config.
-
-    The instance owns one :class:`WaterFlow`, :class:`Eikonal` and
-    :class:`SignedDistanceField` solver plus the repulsion parameters, so the
-    same objects and settings are reused across every guidance call (e.g. every
-    sample in a dataset loop) instead of being threaded through as arguments.
-
     Args:
         apf_influence: SDF repulsion influence radius ``d0`` in cells.
         apf_gain: SDF repulsion strength.
@@ -96,8 +84,8 @@ class VectorFieldGuidance:
 
         Combines the Eikonal shortest-path gradient (attraction toward ``goal``)
         with the SDF repulsion (push away from obstacles) and zeroes the goal
-        cell. The ``influence`` / ``gain`` repulsion parameters come from this
-        instance.
+        cell. The ``apf_influence`` / ``apf_gain`` repulsion parameters come from
+        this instance.
 
         Args:
             grid: (n, n) numpy array where 0=free, 1=obstacle.

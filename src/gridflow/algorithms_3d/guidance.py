@@ -18,7 +18,6 @@ Construct one instance and reuse it; the held solvers and the ``influence`` /
 """
 
 import numpy as np
-import time
 
 from .flow import WaterFlow3D
 from .eikonal import Eikonal3D
@@ -36,12 +35,6 @@ DEFAULT_NS_FORCE_BOUNDARY = 3.0
 
 class VectorFieldGuidance3D:
     """Build 3D ground-truth guidance fields, holding the solvers and config.
-
-    The instance owns one :class:`WaterFlow3D`, :class:`Eikonal3D` and
-    :class:`SignedDistanceField3D` solver plus the repulsion parameters, so the
-    same objects and settings are reused across every guidance call instead of
-    being threaded through as arguments.
-
     Args:
         apf_influence: SDF repulsion influence radius ``d0`` in voxels.
         apf_gain: SDF repulsion strength.
@@ -99,10 +92,8 @@ class VectorFieldGuidance3D:
             goal: (i, j, k) target voxel the field should guide toward.
 
         Returns:
-            guidance: (n, n, n, 3) float32 array of (di, dj, dk) guidance
-                vectors.
+            guidance: (n, n, n, 3) float32 array of (di, dj, dk) guidance vectors.
         """
-
         arrival_time_map = self.eik.compute_arrival_time_map(grid, source=goal)
         gradient_map = self.eik.compute_gradient_map(arrival_time_map, grid)
         repulsive_force_map = self._repulsion(grid)

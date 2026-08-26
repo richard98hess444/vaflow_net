@@ -81,7 +81,11 @@ class NavierStokes3D(BreadthFirstSearch3D):
         ii = np.clip(np.nan_to_num(ii), 0.0, n - 1.0)
         jj = np.clip(np.nan_to_num(jj), 0.0, n - 1.0)
         kk = np.clip(np.nan_to_num(kk), 0.0, n - 1.0)
-        i0, j0, k0 = np.floor(ii).astype(int), np.floor(jj).astype(int), np.floor(kk).astype(int)
+        i0, j0, k0 = (
+            np.floor(ii).astype(int),
+            np.floor(jj).astype(int),
+            np.floor(kk).astype(int),
+        )
         i1 = np.minimum(i0 + 1, n - 1)
         j1 = np.minimum(j0 + 1, n - 1)
         k1 = np.minimum(k0 + 1, n - 1)
@@ -99,7 +103,9 @@ class NavierStokes3D(BreadthFirstSearch3D):
     def _advect(self, vi, vj, vk, fluid):
         """Semi-Lagrangian advection (inertia)."""
         n = vi.shape[0]
-        gi, gj, gk = np.meshgrid(np.arange(n), np.arange(n), np.arange(n), indexing="ij")
+        gi, gj, gk = np.meshgrid(
+            np.arange(n), np.arange(n), np.arange(n), indexing="ij"
+        )
         i_back = gi - self.dt * vi
         j_back = gj - self.dt * vj
         k_back = gk - self.dt * vk
@@ -115,7 +121,14 @@ class NavierStokes3D(BreadthFirstSearch3D):
         i, j, k = cells[:, 0], cells[:, 1], cells[:, 2]
         deg = np.zeros(N)
         rows, colv, vals = [], [], []
-        for di, dj, dk in ((-1, 0, 0), (1, 0, 0), (0, -1, 0), (0, 1, 0), (0, 0, -1), (0, 0, 1)):
+        for di, dj, dk in (
+            (-1, 0, 0),
+            (1, 0, 0),
+            (0, -1, 0),
+            (0, 1, 0),
+            (0, 0, -1),
+            (0, 0, 1),
+        ):
             ni, nj, nk = i + di, j + dj, k + dk
             inb = (ni >= 0) & (ni < n) & (nj >= 0) & (nj < n) & (nk >= 0) & (nk < n)
             nb_fluid = np.zeros(N, dtype=bool)
@@ -257,7 +270,9 @@ class NavierStokes3D(BreadthFirstSearch3D):
         q[fluid] = qf
 
         gi, gj, gk = goal
-        ci, cj, ck = np.meshgrid(np.arange(n), np.arange(n), np.arange(n), indexing="ij")
+        ci, cj, ck = np.meshgrid(
+            np.arange(n), np.arange(n), np.arange(n), indexing="ij"
+        )
         fi, fj, fk = gi - ci, gj - cj, gk - ck
         fnorm = np.sqrt(fi * fi + fj * fj + fk * fk)
         safe = fnorm > 1e-9
@@ -282,9 +297,27 @@ class NavierStokes3D(BreadthFirstSearch3D):
 
             vi, vj, vk = self._advect(vi, vj, vk, fluid)
             if a_diff is not None:
-                vi[fluid], _ = cg(a_diff, vi[fluid], x0=vi[fluid], rtol=self.cg_tol, maxiter=self.cg_maxiter)
-                vj[fluid], _ = cg(a_diff, vj[fluid], x0=vj[fluid], rtol=self.cg_tol, maxiter=self.cg_maxiter)
-                vk[fluid], _ = cg(a_diff, vk[fluid], x0=vk[fluid], rtol=self.cg_tol, maxiter=self.cg_maxiter)
+                vi[fluid], _ = cg(
+                    a_diff,
+                    vi[fluid],
+                    x0=vi[fluid],
+                    rtol=self.cg_tol,
+                    maxiter=self.cg_maxiter,
+                )
+                vj[fluid], _ = cg(
+                    a_diff,
+                    vj[fluid],
+                    x0=vj[fluid],
+                    rtol=self.cg_tol,
+                    maxiter=self.cg_maxiter,
+                )
+                vk[fluid], _ = cg(
+                    a_diff,
+                    vk[fluid],
+                    x0=vk[fluid],
+                    rtol=self.cg_tol,
+                    maxiter=self.cg_maxiter,
+                )
             vi, vj, vk, p_prev = self._project(vi, vj, vk, fluid, q, a_p, p_prev)
             vi, vj, vk = self._seal_domain(vi, vj, vk, fluid)
 
