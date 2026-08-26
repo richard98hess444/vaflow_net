@@ -65,6 +65,17 @@ class VectorFieldGuidance:
         self.apf_influence = apf_influence
         self.apf_resolution = apf_resolution
         self.apf_falloff_power = apf_falloff_power
+    def _repulsion(self, grid: np.ndarray) -> np.ndarray:
+        """SDF artificial-potential-field repulsion using this instance's config."""
+        sdf_map = self.sdf.compute_sdf_map(grid)
+        return self.sdf.compute_repulsive_force_map(
+            grid,
+            sdf=sdf_map,
+            influence=self.apf_influence,
+            gain=self.apf_gain,
+            cell_size=self.apf_resolution,
+            falloff_power=self.apf_falloff_power,
+        )
 
     def eik_method(self, grid: np.ndarray, goal: tuple[int, int]) -> np.ndarray:
         """Build the guidance field from the Eikonal gradient plus SDF repulsion.
@@ -83,16 +94,7 @@ class VectorFieldGuidance:
         """
         arrival_time_map = self.eik.compute_arrival_time_map(grid, source=goal)
         gradient_map = self.eik.compute_gradient_map(arrival_time_map, grid)
-
-        sdf_map = self.sdf.compute_sdf_map(grid)
-        repulsive_force_map = self.sdf.compute_repulsive_force_map(
-            grid,
-            sdf=sdf_map,
-            influence=self.influence,
-            gain=self.gain,
-            cell_size=self.resolution,
-            falloff_power=self.falloff_power,
-        )
+        repulsive_force_map = self._repulsion(grid)
 
         guidance = gradient_map + repulsive_force_map
         guidance[goal[0], goal[1]] = np.array([0.0, 0.0])
