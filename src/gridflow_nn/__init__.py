@@ -16,6 +16,7 @@ from .inference_3d import (
     predict_path_3d,
 )
 from .integration import eul_integrate, rk4_integrate, integrate_path
+from .ns_torch import NSTorch2D, NSTorch3D, build_targets, generate_flow_dataset
 
 __all__ = [
     "VectorFieldNet",
@@ -35,4 +36,8 @@ __all__ = [
     "eul_integrate",
     "rk4_integrate",
     "integrate_path",
+    "NSTorch2D",
+    "NSTorch3D",
+    "build_targets",
+    "generate_flow_dataset",
 ]

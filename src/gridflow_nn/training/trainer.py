@@ -153,8 +153,10 @@ class Trainer:
                 obstacle_prob=config.obstacle_prob,
                 seed=config.seed,
                 check_reachable=getattr(config, "check_reachable", True),
+                method=getattr(config, "method", "eik"),
                 save_dir=ds_dir,
-                chunk_size=config.num_samples,
+                chunk_size=getattr(config, "chunk_size", 1000),
+                gpu_batch_size=getattr(config, "gpu_batch_size", None),
             )
             return ChunkedFlowFieldDataset3D(
                 ds_dir, cache_chunks=getattr(config, "cache_chunks", 1)
@@ -166,6 +168,8 @@ class Trainer:
             obstacle_prob=config.obstacle_prob,
             seed=config.seed,
             check_reachable=getattr(config, "check_reachable", True),
+            method=getattr(config, "method", "eik"),
+            gpu_batch_size=getattr(config, "gpu_batch_size", None),
         )
 
         if self.dataset_key == "2d" and use_cache and cache_file is not None:
