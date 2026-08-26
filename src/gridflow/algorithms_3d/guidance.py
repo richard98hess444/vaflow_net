@@ -111,24 +111,67 @@ class VectorFieldGuidance3D:
         guidance[goal] = np.array([0.0, 0.0, 0.0])
         return guidance.astype(np.float32)
 
-    def ns_method(self, grid: np.ndarray, goal: tuple[int, int, int]) -> np.ndarray:
+    def _ns_flow(
+        self,
+        grid: np.ndarray,
+        goal: tuple[int, int, int],
+        force_field: np.ndarray = None,
+        drag: bool = False,
+    ) -> np.ndarray:
+        """Solve NS and return the unit flow direction (optional force / drag)."""
+        if drag:
+            self.ns.drag_gain = self.drag_gain
+            self.ns.drag_influence = self.drag_influence
+        try:
+            return self.ns.compute_flow_direction(
+                grid, goal=goal, force_field=force_field
+            )
+        finally:
+            self.ns.drag_gain = 0.0
+
+    def ns_method(
+        self, grid: np.ndarray, goal: tuple[int, int, int], clearance: str = "apf"
+    ) -> np.ndarray:
         """Build the guidance field from the incompressible Navier-Stokes flow.
 
-        Returns the unit Navier-Stokes flow direction plus the SDF repulsion
-        (as in :meth:`eik_method`). Pure incompressible flow tends to graze
-        walls that lie between it and the goal, so the repulsion (strength
-        ``gain``) restores obstacle clearance.
+        3D counterpart of :meth:`gridflow.algorithms.guidance.VectorFieldGuidance.ns_method`.
+        ``clearance`` selects how obstacle clearance is added:
+
+          * ``"apf"``  -- SDF repulsion added *after* the solve (original).
+          * ``"force"`` -- the repulsion injected as a body force *before* the
+            projection (smooth, divergence-free); ``ns_force_boundary`` blends
+            the reversed boundary shell back to the plain flow.
+          * ``"drag"`` -- Brinkman porous drag near walls, diverting the flow to
+            keep clearance from inside the solve (single solve).
+          * ``"none"`` -- raw flow; clearance only from wall no-penetration.
 
         Args:
             grid: (n, n, n) numpy array where 0=free, 1=obstacle.
             goal: (i, j, k) target voxel the field should guide toward.
+            clearance: Clearance strategy, one of the values above.
 
         Returns:
-            guidance: (n, n, n, 3) float32 array of (di, dj, dk) guidance
-                vectors.
+            guidance: (n, n, n, 3) float32 array of (di, dj, dk) guidance vectors.
         """
-        velocity = self.ns.compute_velocity_field(grid, goal=goal)
-        guidance = self.ns.compute_flow_field(velocity, grid)
+        if clearance == "none":
+            guidance = self._ns_flow(grid, goal)
+        elif clearance == "drag":
+            guidance = self._ns_flow(grid, goal, drag=True)
+        elif clearance == "apf":
+            guidance = self._ns_flow(grid, goal) + self._repulsion(grid)
+        elif clearance == "force":
+            guidance = self._ns_flow(grid, goal, force_field=self._repulsion(grid))
+            if self.ns_force_boundary > 0.0:
+                plain = self._ns_flow(grid, goal)
+                w = self.ns.boundary_taper(grid.shape, self.ns_force_boundary)
+                guidance = w[..., None] * guidance + (1.0 - w[..., None]) * plain
+        else:
+            raise ValueError(
+                f"Unknown clearance {clearance!r}; expected "
+                "'none', 'apf', 'force' or 'drag'."
+            )
+
+        guidance = np.array(guidance)
         guidance[goal] = np.array([0.0, 0.0, 0.0])
         return guidance.astype(np.float32)
 

@@ -13,10 +13,11 @@ so every part of the project trains against and evaluates the exact same target.
 attraction/repulsion configuration together and exposes two interchangeable
 strategies for producing that target:
 
-  * :meth:`VectorFieldGuidance.eik_method` -- the Eikonal shortest-path gradient
-    (attraction toward the goal) plus the SDF artificial-potential-field
-    repulsion (push away from obstacles), and
-  * :meth:`VectorFieldGuidance.bfs_method` -- the original WaterFlow pipeline.
+  * :meth:`eik_method` -- the Eikonal shortest-path gradient (attraction toward
+    the goal) plus the SDF artificial-potential-field repulsion (push away from
+    obstacles),
+  * :meth:`ns_method` -- the incompressible Navier-Stokes flow direction, and
+  * :meth:`bfs_method` -- the original WaterFlow pipeline.
 
 Construct one instance and reuse it; the held solvers and the ``influence`` /
 ``gain`` repulsion parameters are then shared across every call.
@@ -113,23 +114,67 @@ class VectorFieldGuidance:
         guidance[goal[0], goal[1]] = np.array([0.0, 0.0])
         return guidance.astype(np.float32)
 
-    def ns_method(self, grid: np.ndarray, goal: tuple[int, int]) -> np.ndarray:
+    def _ns_flow(
+        self,
+        grid: np.ndarray,
+        goal: tuple[int, int],
+        force_field: np.ndarray = None,
+        drag: bool = False,
+    ) -> np.ndarray:
+        """Solve NS and return the unit flow direction (optional force / drag)."""
+        if drag:
+            self.ns.drag_gain = self.drag_gain
+            self.ns.drag_influence = self.drag_influence
+        try:
+            return self.ns.compute_flow_direction(
+                grid, goal=goal, force_field=force_field
+            )
+        finally:
+            self.ns.drag_gain = 0.0
+
+    def ns_method(
+        self, grid: np.ndarray, goal: tuple[int, int], clearance: str = "apf"
+    ) -> np.ndarray:
         """Build the guidance field from the incompressible Navier-Stokes flow.
 
-        Returns the unit Navier-Stokes flow direction plus the SDF repulsion
-        (as in :meth:`eik_method`). Pure incompressible flow tends to graze
-        walls that lie between it and the goal, so the repulsion (strength
-        ``gain``) restores obstacle clearance.
+        2D counterpart of :meth:`gridflow.algorithms.guidance.VectorFieldGuidance.ns_method`.
+        ``clearance`` selects how obstacle clearance is added:
+
+          * ``"apf"``  -- SDF repulsion added *after* the solve (original).
+          * ``"force"`` -- the repulsion injected as a body force *before* the
+            projection (smooth, divergence-free); ``ns_force_boundary`` blends
+            the reversed boundary shell back to the plain flow.
+          * ``"drag"`` -- Brinkman porous drag near walls, diverting the flow to
+            keep clearance from inside the solve (single solve).
+          * ``"none"`` -- raw flow; clearance only from wall no-penetration.
 
         Args:
             grid: (n, n) numpy array where 0=free, 1=obstacle.
             goal: (row, col) target cell the field should guide toward.
+            clearance: Clearance strategy, one of the values above.
 
         Returns:
             guidance: (n, n, 2) float32 array of (drow, dcol) guidance vectors.
         """
-        velocity = self.ns.compute_velocity_field(grid, goal=goal)
-        guidance = self.ns.compute_flow_field(velocity, grid)
+        if clearance == "none":
+            guidance = self._ns_flow(grid, goal)
+        elif clearance == "drag":
+            guidance = self._ns_flow(grid, goal, drag=True)
+        elif clearance == "apf":
+            guidance = self._ns_flow(grid, goal) + self._repulsion(grid)
+        elif clearance == "force":
+            guidance = self._ns_flow(grid, goal, force_field=self._repulsion(grid))
+            if self.ns_force_boundary > 0.0:
+                plain = self._ns_flow(grid, goal)
+                w = self.ns.boundary_taper(grid.shape, self.ns_force_boundary)
+                guidance = w[..., None] * guidance + (1.0 - w[..., None]) * plain
+        else:
+            raise ValueError(
+                f"Unknown clearance {clearance!r}; expected "
+                "'none', 'apf', 'force' or 'drag'."
+            )
+
+        guidance = np.array(guidance)
         guidance[goal[0], goal[1]] = np.array([0.0, 0.0])
         return guidance.astype(np.float32)
 

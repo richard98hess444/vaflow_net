@@ -108,6 +108,8 @@ class FlowFieldDataset3D(Dataset):
 
             if method == "bfs":
                 target = guide.bfs_method(grid, goal)
+            elif method == "ns":
+                target = guide.ns_method(grid, goal, clearance="drag")
             else:
                 target = guide.eik_method(grid, goal)
 
