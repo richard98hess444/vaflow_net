@@ -18,7 +18,8 @@ Inherits :class:`BreadthFirstSearch` only to reuse its grid generators.
 """
 
 import numpy as np
-from scipy.sparse import csc_matrix, identity
+from scipy.ndimage import distance_transform_edt
+from scipy.sparse import csc_matrix, diags, identity
 from scipy.sparse.csgraph import connected_components
 from scipy.sparse.linalg import splu
 
@@ -35,6 +36,8 @@ class NavierStokes(BreadthFirstSearch):
         source_rate: float = 0.05,
         body_force: float = 0.0,
         num_steps: int = 300,
+        drag_gain: float = 0.0,
+        drag_influence: float = 3.0,
     ):
         """Configure the solver.
 
@@ -50,6 +53,13 @@ class NavierStokes(BreadthFirstSearch):
                 toward the goal. 0 relies purely on the source/sink pressure
                 field; a small positive value adds directional "pull".
             num_steps: Number of time steps to march toward steady state.
+            drag_gain: Strength of the Brinkman porous drag near obstacles. 0
+                disables it. When positive, a resistance ``sigma(x)`` that grows
+                toward walls damps the velocity, so the incompressible flow
+                diverts around the near-wall band and keeps clearance -- the
+                fluid analogue of slowing the Eikonal speed near obstacles.
+            drag_influence: Distance (in cells) over which the drag ramps from
+                full strength at the wall to zero.
         """
         super().__init__()
         self.viscosity = viscosity
@@ -57,6 +67,8 @@ class NavierStokes(BreadthFirstSearch):
         self.source_rate = source_rate
         self.body_force = body_force
         self.num_steps = num_steps
+        self.drag_gain = drag_gain
+        self.drag_influence = drag_influence
         self.pressure_ = None  # steady-state pressure, set by compute_velocity_field
 
     # ------------------------------------------------------------------
@@ -173,8 +185,9 @@ class NavierStokes(BreadthFirstSearch):
         return (vc - vc_l) + (vr - vr_u)
 
     @staticmethod
-    def _seal_domain(vr, vc):
-        """Zero the wall-normal velocity at the domain border (no-penetration)."""
+    def _seal_domain(vr, vc, fluid):
+        """Zero the wall-normal velocity at every wall face (no-penetration)."""
+        solid = ~fluid
         vr[0, :] = 0.0
         vr[-1, :] = 0.0
         vc[:, 0] = 0.0
@@ -203,6 +216,7 @@ class NavierStokes(BreadthFirstSearch):
         grid: np.ndarray,
         goal: tuple[int, int] = None,
         num_steps: int = None,
+        force_field: np.ndarray = None,
     ) -> np.ndarray:
         """March the Navier-Stokes equations to a (near) steady velocity field.
 
@@ -211,6 +225,11 @@ class NavierStokes(BreadthFirstSearch):
             goal: (row, col) sink the fluid drains toward. Defaults to the grid
                 center (same convention as the other solvers).
             num_steps: Override the configured number of time steps.
+            force_field: Optional (n, n, 2) acceleration ``(f_row, f_col)`` added
+                to every fluid cell each step *before* the pressure projection.
+                Because it is injected inside the solve, the projection makes the
+                result divergence-free, so e.g. an obstacle-repulsion force is
+                absorbed smoothly instead of tacked on as a discontinuous spike.
 
         Returns:
             velocity: (n, n, 2) array of ``(v_row, v_col)`` velocities. Zero on
@@ -249,10 +268,25 @@ class NavierStokes(BreadthFirstSearch):
         laplacian = self._build_laplacian(fluid, idx, cells)
 
         a = self.viscosity * self.dt
-        diffuse_solve = None
-        if a > 0.0:
-            diffuse_op = (identity(len(cells), format="csc") - a * laplacian).tocsc()
-            diffuse_solve = splu(diffuse_op).solve
+        # Brinkman porous drag sigma(x): strong at walls, ramping to 0 over
+        # drag_influence cells, folded into the implicit velocity solve so the
+        # flow diverts smoothly around obstacles and keeps clearance.
+        sigma_cells = None
+        if self.drag_gain > 0.0:
+            dist = distance_transform_edt(fluid)
+            sigma = (
+                self.drag_gain
+                * np.clip(1.0 - dist / self.drag_influence, 0.0, 1.0) ** 2
+            )
+            sigma_cells = sigma[fluid]
+        implicit_solve = None
+        if a > 0.0 or sigma_cells is not None:
+            implicit_op = identity(len(cells), format="csc")
+            if a > 0.0:
+                implicit_op = implicit_op - a * laplacian
+            if sigma_cells is not None:
+                implicit_op = implicit_op + self.dt * diags(sigma_cells)
+            implicit_solve = splu(implicit_op.tocsc()).solve
 
         # The Neumann Laplacian has one null mode per connected fluid region, so
         # pin one cell per component to p=0 (the goal for its own component, an
@@ -278,11 +312,14 @@ class NavierStokes(BreadthFirstSearch):
             if self.body_force > 0.0:
                 vr = np.where(fluid, vr + self.dt * self.body_force * dir_r, 0.0)
                 vc = np.where(fluid, vc + self.dt * self.body_force * dir_c, 0.0)
+            if force_field is not None:
+                vr = np.where(fluid, vr + self.dt * force_field[..., 0], 0.0)
+                vc = np.where(fluid, vc + self.dt * force_field[..., 1], 0.0)
 
             vr, vc = self._advect(vr, vc, fluid)
-            if diffuse_solve is not None:
-                vr[fluid] = diffuse_solve(vr[fluid])
-                vc[fluid] = diffuse_solve(vc[fluid])
+            if implicit_solve is not None:
+                vr[fluid] = implicit_solve(vr[fluid])
+                vc[fluid] = implicit_solve(vc[fluid])
             vr, vc, pressure = self._project(vr, vc, fluid, q, project_solve, pins)
             vr, vc = self._seal_domain(vr, vc, fluid)
 
@@ -306,6 +343,43 @@ class NavierStokes(BreadthFirstSearch):
         out[..., 0] = np.where(moving, v[..., 0] / np.where(moving, mag, 1.0), 0.0)
         out[..., 1] = np.where(moving, v[..., 1] / np.where(moving, mag, 1.0), 0.0)
         return out
+
+    def compute_flow_direction(
+        self,
+        grid: np.ndarray,
+        goal: tuple[int, int] = None,
+        force_field: np.ndarray = None,
+        num_steps: int = None,
+    ) -> np.ndarray:
+        """Solve for the steady velocity and return its unit flow direction.
+
+        Convenience wrapper around :meth:`compute_velocity_field` followed by
+        :meth:`compute_flow_field`; the ``force_field`` and the configured
+        ``drag_gain`` are applied inside the solve.
+        """
+        velocity = self.compute_velocity_field(
+            grid, goal=goal, num_steps=num_steps, force_field=force_field
+        )
+        return self.compute_flow_field(velocity, grid)
+
+    @staticmethod
+    def boundary_taper(shape: tuple[int, int], margin: float) -> np.ndarray:
+        """Smoothstep weight in [0, 1]: 0 at the domain edge, 1 at ``margin`` cells in.
+
+        Used to blend an edge band of a field back toward a reference flow (e.g.
+        the reversed one-cell ring the injected repulsion leaves at the map wall).
+        """
+        if margin <= 0.0:
+            return np.ones(shape, dtype=float)
+        axes = []
+        for size in shape:
+            idx = np.arange(size)
+            axes.append(np.minimum(idx, idx[::-1]))
+        dist = axes[0][:, None]
+        for ax in axes[1:]:
+            dist = np.minimum(dist, ax[None, :])
+        t = np.clip(dist.astype(float) / margin, 0.0, 1.0)
+        return t * t * (3.0 - 2.0 * t)
 
     def to_display_map(
         self, velocity_field: np.ndarray, grid: np.ndarray

@@ -15,7 +15,8 @@ Inherits :class:`BreadthFirstSearch3D` only to reuse its grid generators.
 """
 
 import numpy as np
-from scipy.sparse import csc_matrix, identity
+from scipy.ndimage import distance_transform_edt
+from scipy.sparse import csc_matrix, diags, identity
 from scipy.sparse.csgraph import connected_components
 from scipy.sparse.linalg import cg
 
@@ -34,6 +35,8 @@ class NavierStokes3D(BreadthFirstSearch3D):
         num_steps: int = 300,
         cg_tol: float = 1e-4,
         cg_maxiter: int = 400,
+        drag_gain: float = 0.0,
+        drag_influence: float = 3.0,
     ):
         """Configure the solver (see the 2D class; ``cg_*`` tune the solves)."""
         super().__init__()
@@ -44,6 +47,8 @@ class NavierStokes3D(BreadthFirstSearch3D):
         self.num_steps = num_steps
         self.cg_tol = cg_tol
         self.cg_maxiter = cg_maxiter
+        self.drag_gain = drag_gain
+        self.drag_influence = drag_influence
         self.pressure_ = None  # steady-state pressure, set by compute_velocity_field
 
     # ------------------------------------------------------------------
@@ -185,13 +190,16 @@ class NavierStokes3D(BreadthFirstSearch3D):
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
-    def compute_velocity_field(self, grid, goal=None, num_steps=None):
+    def compute_velocity_field(self, grid, goal=None, num_steps=None, force_field=None):
         """March Navier-Stokes to a (near) steady velocity field.
 
         Args:
             grid: (n, n, n) array where 0=free, 1=obstacle.
             goal: (i, j, k) outlet the fluid drains toward (default: center).
             num_steps: Override the configured number of time steps.
+            force_field: Optional (n, n, n, 3) acceleration added to every fluid
+                voxel each step before the pressure projection (kept smooth and
+                divergence-free by the projection).
 
         Returns:
             velocity: (n, n, n, 3) array of ``(v_i, v_j, v_k)`` velocities, zero
@@ -217,7 +225,25 @@ class NavierStokes3D(BreadthFirstSearch3D):
         # otherwise-singular Neumann system without per-pocket bookkeeping).
         a = self.viscosity * self.dt
         eye = identity(len(cells), format="csc")
-        a_diff = (eye - a * laplacian).tocsc() if a > 0 else None
+        # Brinkman porous drag sigma(x): strong at walls, ramping to 0 over
+        # drag_influence voxels, folded into the implicit velocity solve so the
+        # flow diverts around obstacles and keeps clearance.
+        sigma_cells = None
+        if self.drag_gain > 0.0:
+            dist = distance_transform_edt(fluid)
+            sigma = (
+                self.drag_gain
+                * np.clip(1.0 - dist / self.drag_influence, 0.0, 1.0) ** 2
+            )
+            sigma_cells = sigma[fluid]
+        a_diff = None
+        if a > 0 or sigma_cells is not None:
+            a_diff = eye
+            if a > 0:
+                a_diff = a_diff - a * laplacian
+            if sigma_cells is not None:
+                a_diff = a_diff + self.dt * diags(sigma_cells)
+            a_diff = a_diff.tocsc()
         a_p = (-laplacian + 1e-6 * eye).tocsc()
 
         # Uniform source in the goal's connected region, cancelled by a sink at
@@ -249,6 +275,10 @@ class NavierStokes3D(BreadthFirstSearch3D):
                 vi = np.where(fluid, vi + self.dt * self.body_force * dir_i, 0.0)
                 vj = np.where(fluid, vj + self.dt * self.body_force * dir_j, 0.0)
                 vk = np.where(fluid, vk + self.dt * self.body_force * dir_k, 0.0)
+            if force_field is not None:
+                vi = np.where(fluid, vi + self.dt * force_field[..., 0], 0.0)
+                vj = np.where(fluid, vj + self.dt * force_field[..., 1], 0.0)
+                vk = np.where(fluid, vk + self.dt * force_field[..., 2], 0.0)
 
             vi, vj, vk = self._advect(vi, vj, vk, fluid)
             if a_diff is not None:
@@ -274,6 +304,25 @@ class NavierStokes3D(BreadthFirstSearch3D):
         for c in range(3):
             out[..., c] = np.where(moving, v[..., c] / scale, 0.0)
         return out
+
+    def compute_flow_direction(self, grid, goal=None, force_field=None, num_steps=None):
+        """Solve for the steady velocity and return its unit flow direction."""
+        velocity = self.compute_velocity_field(
+            grid, goal=goal, num_steps=num_steps, force_field=force_field
+        )
+        return self.compute_flow_field(velocity, grid)
+
+    @staticmethod
+    def boundary_taper(shape, margin):
+        """Smoothstep weight in [0, 1]: 0 at the domain edge, 1 at ``margin`` voxels in."""
+        if margin <= 0.0:
+            return np.ones(shape, dtype=float)
+        axes = [np.minimum(np.arange(s), np.arange(s)[::-1]) for s in shape]
+        dist = axes[0][:, None, None]
+        dist = np.minimum(dist, axes[1][None, :, None])
+        dist = np.minimum(dist, axes[2][None, None, :])
+        t = np.clip(dist.astype(float) / margin, 0.0, 1.0)
+        return t * t * (3.0 - 2.0 * t)
 
     def to_display_map(self, velocity_field, grid):
         """Speed magnitude ``|u|`` with obstacles marked -1."""

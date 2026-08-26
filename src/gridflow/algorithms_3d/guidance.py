@@ -29,6 +29,9 @@ DEFAULT_APF_GAIN = 0.03
 DEFAULT_APF_INFLUENCE = 5.0
 DEFAULT_APF_RESOLUTION = 0.1
 DEFAULT_APF_FALLOFF_POWER = 0.67
+DEFAULT_DRAG_GAIN = 5.0
+DEFAULT_DRAG_INFLUENCE = 3.0
+DEFAULT_NS_FORCE_BOUNDARY = 3.0
 
 
 class VectorFieldGuidance3D:
@@ -44,6 +47,9 @@ class VectorFieldGuidance3D:
         apf_gain: SDF repulsion strength.
         apf_resolution: Physical distance represented by one voxel (``cell_size``).
         apf_falloff_power: Exponent ``p`` on the clearance in the repulsion law.
+        drag_gain: Drag force gain.
+        drag_influence: Drag force influence radius.
+        ns_force_boundary: Navier-Stokes force boundary.
     """
 
     def __init__(
@@ -52,6 +58,9 @@ class VectorFieldGuidance3D:
         apf_influence: float = DEFAULT_APF_INFLUENCE,
         apf_resolution: float = DEFAULT_APF_RESOLUTION,
         apf_falloff_power: float = DEFAULT_APF_FALLOFF_POWER,
+        drag_gain: float = DEFAULT_DRAG_GAIN,
+        drag_influence: float = DEFAULT_DRAG_INFLUENCE,
+        ns_force_boundary: float = DEFAULT_NS_FORCE_BOUNDARY,
     ):
         self.wf = WaterFlow3D()
         self.eik = Eikonal3D()
@@ -61,6 +70,10 @@ class VectorFieldGuidance3D:
         self.apf_influence = apf_influence
         self.apf_resolution = apf_resolution
         self.apf_falloff_power = apf_falloff_power
+        self.drag_gain = drag_gain
+        self.drag_influence = drag_influence
+        self.ns_force_boundary = ns_force_boundary
+
     def _repulsion(self, grid: np.ndarray) -> np.ndarray:
         """SDF artificial-potential-field repulsion using this instance's config."""
         sdf_map = self.sdf.compute_sdf_map(grid)
