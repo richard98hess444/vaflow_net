@@ -29,12 +29,10 @@ from .eikonal import Eikonal
 from .navier_stokes import NavierStokes
 from .sdf import SignedDistanceField
 
-# Default artificial-potential-field repulsion parameters. Kept here so every
-# caller shares the same balance between attraction and repulsion.
-DEFAULT_INFLUENCE = 3.0
-DEFAULT_GAIN = 1.0
-DEFAULT_RESOLUTION = 0.1
-DEFAULT_FALLOFF_POWER = 0.67
+DEFAULT_APF_GAIN = 0.03
+DEFAULT_APF_INFLUENCE = 5.0
+DEFAULT_APF_RESOLUTION = 0.1
+DEFAULT_APF_FALLOFF_POWER = 0.67
 
 
 class VectorFieldGuidance:
@@ -46,25 +44,27 @@ class VectorFieldGuidance:
     sample in a dataset loop) instead of being threaded through as arguments.
 
     Args:
-        influence: SDF repulsion influence radius ``d0`` in cells.
-        gain: SDF repulsion strength.
+        apf_influence: SDF repulsion influence radius ``d0`` in cells.
+        apf_gain: SDF repulsion strength.
+        apf_resolution: SDF repulsion cell size.
+        apf_falloff_power: SDF repulsion falloff power.
     """
 
     def __init__(
         self,
-        influence: float = DEFAULT_INFLUENCE,
-        gain: float = DEFAULT_GAIN,
-        resolution: float = DEFAULT_RESOLUTION,
-        falloff_power: float = DEFAULT_FALLOFF_POWER,
+        apf_gain: float = DEFAULT_APF_GAIN,
+        apf_influence: float = DEFAULT_APF_INFLUENCE,
+        apf_resolution: float = DEFAULT_APF_RESOLUTION,
+        apf_falloff_power: float = DEFAULT_APF_FALLOFF_POWER,
     ):
         self.wf = WaterFlow()
         self.eik = Eikonal()
         self.ns = NavierStokes(viscosity=0.9, dt=0.1, source_rate=0.05, num_steps=100)
         self.sdf = SignedDistanceField()
-        self.influence = influence
-        self.gain = gain
-        self.resolution = resolution
-        self.falloff_power = falloff_power
+        self.apf_gain = apf_gain
+        self.apf_influence = apf_influence
+        self.apf_resolution = apf_resolution
+        self.apf_falloff_power = apf_falloff_power
 
     def eik_method(self, grid: np.ndarray, goal: tuple[int, int]) -> np.ndarray:
         """Build the guidance field from the Eikonal gradient plus SDF repulsion.

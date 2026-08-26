@@ -48,10 +48,10 @@ class FlowFieldDataset3D(Dataset):
 
         bfs = BreadthFirstSearch3D()  # grid generation
         guide = VectorFieldGuidance3D(  # shared ground-truth construction
-            gain=0.03,
-            influence=5,
-            resolution=0.1,
-            falloff_power=0.67,
+            apf_gain=0.03,
+            apf_influence=5,
+            apf_resolution=0.1,
+            apf_falloff_power=0.67,
         )
         rng = np.random.default_rng(seed)
         center = (grid_size // 2, grid_size // 2, grid_size // 2)

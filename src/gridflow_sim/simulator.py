@@ -71,10 +71,10 @@ class GridFlowSimulator:
         self.world = self._generate_world(world_size, obstacle_prob, grid_seed)
 
         self.guide = VectorFieldGuidance(
-            gain=0.03,
-            influence=5,
-            resolution=0.1,
-            falloff_power=0.67,
+            apf_gain=0.03,
+            apf_influence=5,
+            apf_resolution=0.1,
+            apf_falloff_power=0.67,
         )
 
         self.robot_pos = None  # (row, col)

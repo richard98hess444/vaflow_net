@@ -26,10 +26,10 @@ class FlowFieldDataset(Dataset):
 
         bfs = BreadthFirstSearch()  # used to generate the grids
         guide = VectorFieldGuidance(  # shared ground-truth construction
-            gain=0.03,
-            influence=5,
-            resolution=0.1,
-            falloff_power=0.67,
+            apf_gain=0.03,
+            apf_influence=5,
+            apf_resolution=0.1,
+            apf_falloff_power=0.67,
         )
         astar = AStar()  # reachability check (center -> goal)
         rng = np.random.default_rng(seed)

@@ -25,10 +25,10 @@ from .eikonal import Eikonal3D
 from .navier_stokes import NavierStokes3D
 from .sdf import SignedDistanceField3D
 
-DEFAULT_INFLUENCE = 3.0
-DEFAULT_GAIN = 1.0
-DEFAULT_RESOLUTION = 0.1
-DEFAULT_FALLOFF_POWER = 0.67
+DEFAULT_APF_GAIN = 0.03
+DEFAULT_APF_INFLUENCE = 5.0
+DEFAULT_APF_RESOLUTION = 0.1
+DEFAULT_APF_FALLOFF_POWER = 0.67
 
 
 class VectorFieldGuidance3D:
@@ -40,27 +40,27 @@ class VectorFieldGuidance3D:
     being threaded through as arguments.
 
     Args:
-        influence: SDF repulsion influence radius ``d0`` in voxels.
-        gain: SDF repulsion strength.
-        resolution: Physical distance represented by one voxel (``cell_size``).
-        falloff_power: Exponent ``p`` on the clearance in the repulsion law.
+        apf_influence: SDF repulsion influence radius ``d0`` in voxels.
+        apf_gain: SDF repulsion strength.
+        apf_resolution: Physical distance represented by one voxel (``cell_size``).
+        apf_falloff_power: Exponent ``p`` on the clearance in the repulsion law.
     """
 
     def __init__(
         self,
-        influence: float = DEFAULT_INFLUENCE,
-        gain: float = DEFAULT_GAIN,
-        resolution: float = DEFAULT_RESOLUTION,
-        falloff_power: float = DEFAULT_FALLOFF_POWER,
+        apf_gain: float = DEFAULT_APF_GAIN,
+        apf_influence: float = DEFAULT_APF_INFLUENCE,
+        apf_resolution: float = DEFAULT_APF_RESOLUTION,
+        apf_falloff_power: float = DEFAULT_APF_FALLOFF_POWER,
     ):
         self.wf = WaterFlow3D()
         self.eik = Eikonal3D()
         self.ns = NavierStokes3D(viscosity=0.9, dt=0.1, source_rate=0.05, num_steps=100)
         self.sdf = SignedDistanceField3D()
-        self.influence = influence
-        self.gain = gain
-        self.resolution = resolution
-        self.falloff_power = falloff_power
+        self.apf_gain = apf_gain
+        self.apf_influence = apf_influence
+        self.apf_resolution = apf_resolution
+        self.apf_falloff_power = apf_falloff_power
 
     def eik_method(self, grid: np.ndarray, goal: tuple[int, int, int]) -> np.ndarray:
         """Build the guidance field from the Eikonal gradient plus SDF repulsion.
