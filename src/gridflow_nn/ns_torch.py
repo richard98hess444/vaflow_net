@@ -362,7 +362,7 @@ def _prep_sample(grid, goal, source_rate, drag_gain, drag_influence):
 
 
 def build_targets(
-    grids, goals, ndim=2, batch_size=64, device=None, progress=False, **solver_kwargs
+    grids, goals, ndim=2, batch_size=64, device=None, progress=False, fill_stagnant=True, **solver_kwargs
 ):
     """Batched drag-flow targets for many ``(grid, goal)`` samples.
 
@@ -373,6 +373,7 @@ def build_targets(
         batch_size: number of grids solved together on the GPU.
         device: torch device (defaults to cuda if available).
         progress: when True, print after each GPU sub-batch is solved.
+        fill_stagnant: when True, inpaint zero-flow cells via GPU fill before zeroing goal.
         **solver_kwargs: forwarded to :class:`NSTorch2D` / :class:`NSTorch3D`
             (``viscosity``, ``dt``, ``source_rate``, ``num_steps``, ``drag_gain``,
             ``drag_influence``, ``diff_iters``, ``proj_iters``, ``cg_tol``).
@@ -403,6 +404,11 @@ def build_targets(
         q_t = torch.from_numpy(np.stack(qs))
         sigma_t = torch.from_numpy(np.stack(sigmas))
         field = solver.flow_direction(fluid_t, q_t, sigma_t)
+        
+        if fill_stagnant:
+            grids_batch = np.stack(gb).astype(np.float32)
+            field = fill_stagnant_flow_torch(field, grids_batch, iters=4, normalize=False, device=device)
+        
         for i, goal in enumerate(ob):
             field[i][tuple(goal)] = 0.0
         out.append(field.astype(np.float32))
@@ -538,3 +544,107 @@ def generate_flow_dataset(
             save_path, grids=grids, goals=goals, targets=targets, grid_size=grid_size
         )
     return grids, goals, targets
+
+
+def fill_stagnant_flow_torch(field, grid, iters=4, normalize=False, device=None):
+    """Fill zero-flow free cells with mean of moving neighbors' vectors (batched torch).
+
+    GPU-accelerated version of :func:`gridflow.utils.grid.fill_stagnant_flow`. Accepts
+    batched inputs and returns the same shape. Incompressible flow has genuine
+    stagnation points (domain corners, pocket interiors); this inpaints them by
+    averaging moving neighbors' vectors, repeated ``iters`` passes to reach into
+    2-3 cell pockets. Obstacles and fully isolated pockets are left at zero.
+
+    Works for 2D ``(B, n, n, 2)`` and 3D ``(B, n, n, n, 3)`` field tensors.
+
+    Args:
+        field: (B, *spatial, D) flow/direction field (torch tensor or numpy array).
+        grid: (B, *spatial) or (*spatial) obstacle grid (0=free, non-zero=obstacle).
+            If (*spatial) without batch, broadcasted to all B samples.
+        iters: Number of propagation passes.
+        normalize: If True, renormalize filled cells to unit length (for unit-direction
+            fields); if False, keep averaged magnitude (for magnitude-carrying fields).
+        device: torch device; if None, infers from field or defaults to cuda/cpu.
+
+    Returns:
+        (B, *spatial, D) float32 numpy array with stagnation holes filled.
+    """
+    if device is None:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = torch.device(device)
+
+    # Convert to torch, ensure float32, move to device
+    field = torch.as_tensor(field, dtype=torch.float32, device=device)
+    grid = torch.as_tensor(grid, dtype=torch.float32, device=device)
+
+    # Handle grid broadcasting: if grid lacks batch dimension, add it
+    # field is (B, *spatial, D), so field.shape[:-1] is (B, *spatial)
+    # If grid is (*spatial) only, it has one fewer dimension than field.shape[:-1]
+    if grid.dim() < len(field.shape[:-1]):
+        grid = grid.unsqueeze(0).expand(field.shape[:-1])
+    
+    ndim = field.shape[-1]
+    spatial_ndim = field.dim() - 2  # e.g., 2 for (B, n, n, 2)
+    free = grid == 0.0
+
+    # Build 3^D neighborhood kernel (center excluded)
+    kernel_shape = (3,) * spatial_ndim
+    kernel = torch.ones(kernel_shape, dtype=torch.float32, device=device)
+    center_idx = tuple(1 for _ in range(spatial_ndim))
+    kernel[center_idx] = 0.0
+
+    for iteration in range(iters):
+        mag = torch.linalg.vector_norm(field, dim=-1)  # (B, *spatial)
+        moving = free & (mag > 1e-9)
+        stagnant = free & ~moving
+        free_f = free.to(torch.float32)
+        moving_f = moving.to(torch.float32)
+
+        # Convolve to count moving neighbors: sum of moving_f in each 3^D neighborhood
+        if spatial_ndim == 2:
+            den = torch.nn.functional.conv_transpose2d(
+                moving_f.unsqueeze(1),  # (B, 1, *spatial)
+                kernel.unsqueeze(0).unsqueeze(0),  # (1, 1, 3, 3)
+                padding=1,
+            ).squeeze(1)  # (B, *spatial)
+        else:  # 3D
+            den = torch.nn.functional.conv_transpose3d(
+                moving_f.unsqueeze(1),
+                kernel.unsqueeze(0).unsqueeze(0),  # (1, 1, 3, 3, 3)
+                padding=1,
+            ).squeeze(1)
+
+        fillable = stagnant & (den > 0.5)
+        if not fillable.any():
+            break
+
+        out = field.clone()
+        for c in range(ndim):
+            # Convolve each component separately
+            if spatial_ndim == 2:
+                contrib = torch.nn.functional.conv_transpose2d(
+                    (field[..., c] * moving_f).unsqueeze(1),
+                    kernel.unsqueeze(0).unsqueeze(0),
+                    padding=1,
+                ).squeeze(1)
+            else:
+                contrib = torch.nn.functional.conv_transpose3d(
+                    (field[..., c] * moving_f).unsqueeze(1),
+                    kernel.unsqueeze(0).unsqueeze(0),
+                    padding=1,
+                ).squeeze(1)
+            avg_c = contrib / torch.where(den > 0, den, torch.ones_like(den))
+            out[..., c] = torch.where(fillable, avg_c, field[..., c])
+
+        if normalize:
+            nm = torch.linalg.vector_norm(out, dim=-1)
+            renorm = fillable & (nm > 1e-9)
+            for c in range(ndim):
+                out[..., c] = torch.where(
+                    renorm,
+                    out[..., c] / torch.where(nm > 1e-9, nm, torch.ones_like(nm)),
+                    out[..., c],
+                )
+        field = out
+
+    return field.cpu().numpy().astype(np.float32)

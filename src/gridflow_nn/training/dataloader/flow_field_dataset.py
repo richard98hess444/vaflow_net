@@ -35,6 +35,7 @@ class FlowFieldDataset(Dataset):
             drag_gain=3.7,
             drag_influence=3.0,
             ns_force_boundary=2.5,
+            fill_stagnant=True,
         )
         astar = AStar()  # reachability check (center -> goal)
         rng = np.random.default_rng(seed)

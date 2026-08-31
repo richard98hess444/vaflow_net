@@ -2,6 +2,7 @@ import bisect
 import json
 import os
 from pathlib import Path
+import time
 
 import torch
 from torch.utils.data import Dataset, Sampler
@@ -57,6 +58,7 @@ class FlowFieldDataset3D(Dataset):
             drag_gain=3.7,
             drag_influence=3.0,
             ns_force_boundary=2.5,
+            fill_stagnant=True,
         )
         rng = np.random.default_rng(seed)
         center = (grid_size // 2, grid_size // 2, grid_size // 2)
@@ -88,9 +90,8 @@ class FlowFieldDataset3D(Dataset):
 
         # Peak memory stays bounded by ``chunk_size`` samples.
         total = saved_count
-        display_freq = (
-            10 ** (int(np.log10(num_samples)) - 1) if num_samples >= 10 else 1
-        )
+        display_freq = 100
+        start_time = time.time()
         while total < num_samples and attempt < max_attempts:
             grid = bfs.generate_sparse_grid(
                 n=grid_size,
@@ -126,6 +127,7 @@ class FlowFieldDataset3D(Dataset):
                 self._save_chunk(save_dir, saved_count, attempt, rng, meta)
                 saved_count += len(self.samples)
                 self.samples = []  # release memory
+                print(f"Saved chunk in {time.time() - start_time:.2f}s")
 
             if total % display_freq == 0:
                 print(f"Collected {total} / {num_samples} samples...")
