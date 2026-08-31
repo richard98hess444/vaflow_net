@@ -49,7 +49,6 @@ class NavierStokes3D(BreadthFirstSearch3D):
         self.cg_maxiter = cg_maxiter
         self.drag_gain = drag_gain
         self.drag_influence = drag_influence
-        self.pressure_ = None  # steady-state pressure, set by compute_velocity_field
 
     # ------------------------------------------------------------------
     # Voxel / neighbor helpers
@@ -321,10 +320,6 @@ class NavierStokes3D(BreadthFirstSearch3D):
             vi, vj, vk, p_prev = self._project(vi, vj, vk, fluid, q, a_p, p_prev)
             vi, vj, vk = self._seal_domain(vi, vj, vk, fluid)
 
-        # Steady-state pressure: low at the goal outlet, high far away.
-        pressure = np.zeros((n, n, n))
-        pressure[fluid] = p_prev
-        self.pressure_ = pressure
         return np.stack([vi, vj, vk], axis=-1)
 
     def compute_flow_field(self, velocity_field, grid):

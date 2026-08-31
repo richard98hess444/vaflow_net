@@ -69,7 +69,6 @@ class NavierStokes(BreadthFirstSearch):
         self.num_steps = num_steps
         self.drag_gain = drag_gain
         self.drag_influence = drag_influence
-        self.pressure_ = None  # steady-state pressure, set by compute_velocity_field
 
     # ------------------------------------------------------------------
     # Grid / neighbor helpers
@@ -320,11 +319,9 @@ class NavierStokes(BreadthFirstSearch):
             if implicit_solve is not None:
                 vr[fluid] = implicit_solve(vr[fluid])
                 vc[fluid] = implicit_solve(vc[fluid])
-            vr, vc, pressure = self._project(vr, vc, fluid, q, project_solve, pins)
+            vr, vc, _ = self._project(vr, vc, fluid, q, project_solve, pins)
             vr, vc = self._seal_domain(vr, vc, fluid)
 
-        # Steady-state pressure: low (0) at the goal outlet, high far away.
-        self.pressure_ = pressure
         return np.stack([vr, vc], axis=-1)
 
     def compute_flow_field(
