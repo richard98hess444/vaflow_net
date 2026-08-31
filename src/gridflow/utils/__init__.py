@@ -21,6 +21,7 @@ from .plotting import (
 from .grid import (
     solidify_pixels,
     solidify_voxels,
+    fill_stagnant_flow,
 )
 
 from .plotting_3d import (
@@ -51,6 +52,7 @@ __all__ = [
     "plot_prediction_vs_target",
     "solidify_pixels",
     "solidify_voxels",
+    "fill_stagnant_flow",
     "plot_grid_3d",
     "plot_time_map_3d",
     "plot_vector_field_3d",

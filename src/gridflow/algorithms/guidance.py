@@ -23,6 +23,7 @@ from .flow import WaterFlow
 from .eikonal import Eikonal
 from .navier_stokes import NavierStokes
 from .sdf import SignedDistanceField
+from ..utils.grid import fill_stagnant_flow
 
 DEFAULT_APF_GAIN = 0.03
 DEFAULT_APF_INFLUENCE = 5.0
@@ -54,6 +55,7 @@ class VectorFieldGuidance:
         drag_gain: float = DEFAULT_DRAG_GAIN,
         drag_influence: float = DEFAULT_DRAG_INFLUENCE,
         ns_force_boundary: float = DEFAULT_NS_FORCE_BOUNDARY,
+        fill_stagnant: bool = False,
     ):
         self.wf = WaterFlow()
         self.eik = Eikonal()
@@ -66,6 +68,7 @@ class VectorFieldGuidance:
         self.drag_gain = drag_gain
         self.drag_influence = drag_influence
         self.ns_force_boundary = ns_force_boundary
+        self.fill_stagnant = fill_stagnant
 
     def _repulsion(self, grid: np.ndarray) -> np.ndarray:
         """SDF artificial-potential-field repulsion using this instance's config."""
@@ -164,6 +167,8 @@ class VectorFieldGuidance:
             )
 
         guidance = np.array(guidance)
+        if self.fill_stagnant:
+            guidance = fill_stagnant_flow(guidance, grid)
         guidance[goal[0], goal[1]] = np.array([0.0, 0.0])
         return guidance.astype(np.float32)
 
