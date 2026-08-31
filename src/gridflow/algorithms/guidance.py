@@ -55,7 +55,7 @@ class VectorFieldGuidance:
         drag_gain: float = DEFAULT_DRAG_GAIN,
         drag_influence: float = DEFAULT_DRAG_INFLUENCE,
         ns_force_boundary: float = DEFAULT_NS_FORCE_BOUNDARY,
-        fill_stagnant: bool = False,
+        fill_stagnant: bool = True,
     ):
         self.wf = WaterFlow()
         self.eik = Eikonal()
@@ -112,15 +112,13 @@ class VectorFieldGuidance:
         force_field: np.ndarray = None,
         drag: bool = False,
     ) -> np.ndarray:
-        """Solve NS and return the unit flow direction (optional force / drag)."""
+        """Solve NS and return the navigation field (direction x speed; force/drag)."""
         if drag:
             self.ns.drag_gain = self.drag_gain
             self.ns.drag_influence = self.drag_influence
         try:
             velocity = self.ns.compute_velocity_field(grid, goal, force_field)
-            flow_field = self.ns.compute_flow_field(velocity, grid)
-            navigation_field = self.ns.compute_navigation_field(flow_field, grid)
-            return navigation_field
+            return self.ns.compute_navigation_field(velocity, grid, lo=0.8, hi=2.4)
         finally:
             self.ns.drag_gain = 0.0
 
