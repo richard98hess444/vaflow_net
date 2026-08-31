@@ -341,24 +341,6 @@ class NavierStokes(BreadthFirstSearch):
         out[..., 1] = np.where(moving, v[..., 1] / np.where(moving, mag, 1.0), 0.0)
         return out
 
-    def compute_flow_direction(
-        self,
-        grid: np.ndarray,
-        goal: tuple[int, int] = None,
-        force_field: np.ndarray = None,
-        num_steps: int = None,
-    ) -> np.ndarray:
-        """Solve for the steady velocity and return its unit flow direction.
-
-        Convenience wrapper around :meth:`compute_velocity_field` followed by
-        :meth:`compute_flow_field`; the ``force_field`` and the configured
-        ``drag_gain`` are applied inside the solve.
-        """
-        velocity = self.compute_velocity_field(
-            grid, goal=goal, num_steps=num_steps, force_field=force_field
-        )
-        return self.compute_flow_field(velocity, grid)
-
     @staticmethod
     def boundary_taper(shape: tuple[int, int], margin: float) -> np.ndarray:
         """Smoothstep weight in [0, 1]: 0 at the domain edge, 1 at ``margin`` cells in.
@@ -387,35 +369,33 @@ class NavierStokes(BreadthFirstSearch):
         return speed
 
     def compute_navigation_field(
-        self, velocity_field: np.ndarray, grid: np.ndarray, gamma: float = 1.0
+        self, velocity_field: np.ndarray, grid: np.ndarray, lo: float = 0.5, hi: float = 2.4
     ) -> np.ndarray:
-        """Flow direction scaled by a pressure-based speed (slow near the goal).
+        """Flow direction scaled by a min-max-normalized speed in ``[lo, hi]``.
 
-        The raw fluid is fastest at the goal (flux converging into the sink),
-        which is backwards for navigation. The steady pressure ``self.pressure_``
-        is a natural potential that is lowest at the goal and rises outward, so
-        scaling the unit flow direction by the normalized pressure yields a field
-        that is (near) zero at the goal and speeds up with distance -- a smooth
-        arrival profile taken straight from the solved field rather than an
-        ad-hoc remap. Requires a prior :meth:`compute_velocity_field` call.
+        Linearly maps the raw speed ``|u|`` over the moving fluid cells: the
+        slowest moving cell gets ``lo``, the fastest ``hi``, everything else
+        interpolated between. Direction is preserved.
 
         Args:
             velocity_field: (n, n, 2) field from :meth:`compute_velocity_field`.
             grid: (n, n) numpy array where 0=free, 1=obstacle.
-            gamma: Speed-profile exponent (>1 lingers slow near the goal longer,
-                <1 ramps up faster).
+            lo: Speed assigned to the slowest moving cell.
+            hi: Speed assigned to the fastest moving cell.
 
         Returns:
-            field: (n, n, 2) direction vectors scaled to speed in [0, 1].
+            field: (n, n, 2) direction vectors scaled to speed in ``[lo, hi]``.
         """
-        if getattr(self, "pressure_", None) is None:
-            raise RuntimeError("call compute_velocity_field() first")
         direction = self.compute_flow_field(velocity_field, grid)
-        fluid = grid == 0
-        speed = np.zeros(grid.shape, dtype=float)
-        pf = self.pressure_[fluid]
-        pf = pf - pf.min()
-        pmax = pf.max()
-        if pmax > 0:
-            speed[fluid] = (pf / pmax) ** gamma
-        return direction * speed[..., None]
+        v = np.asarray(velocity_field, dtype=float)
+        speed = np.hypot(v[..., 0], v[..., 1])
+        moving = (grid == 0) & (speed > 1e-9)
+        scaled = np.zeros(grid.shape, dtype=float)
+        if moving.any():
+            s = speed[moving]
+            smin, smax = float(s.min()), float(s.max())
+            if smax > smin:
+                scaled[moving] = lo + (s - smin) / (smax - smin) * (hi - lo)
+            else:
+                scaled[moving] = lo
+        return direction * scaled[..., None]

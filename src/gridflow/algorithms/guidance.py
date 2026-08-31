@@ -114,9 +114,10 @@ class VectorFieldGuidance:
             self.ns.drag_gain = self.drag_gain
             self.ns.drag_influence = self.drag_influence
         try:
-            return self.ns.compute_flow_direction(
-                grid, goal=goal, force_field=force_field
-            )
+            velocity = self.ns.compute_velocity_field(grid, goal, force_field)
+            flow_field = self.ns.compute_flow_field(velocity, grid)
+            navigation_field = self.ns.compute_navigation_field(flow_field, grid)
+            return navigation_field
         finally:
             self.ns.drag_gain = 0.0
 

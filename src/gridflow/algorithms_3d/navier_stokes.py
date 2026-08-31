@@ -333,13 +333,6 @@ class NavierStokes3D(BreadthFirstSearch3D):
             out[..., c] = np.where(moving, v[..., c] / scale, 0.0)
         return out
 
-    def compute_flow_direction(self, grid, goal=None, force_field=None, num_steps=None):
-        """Solve for the steady velocity and return its unit flow direction."""
-        velocity = self.compute_velocity_field(
-            grid, goal=goal, num_steps=num_steps, force_field=force_field
-        )
-        return self.compute_flow_field(velocity, grid)
-
     @staticmethod
     def boundary_taper(shape, margin):
         """Smoothstep weight in [0, 1]: 0 at the domain edge, 1 at ``margin`` voxels in."""
@@ -359,23 +352,23 @@ class NavierStokes3D(BreadthFirstSearch3D):
         speed[grid == 1] = -1.0
         return speed
 
-    def compute_navigation_field(self, velocity_field, grid, gamma=1.0):
-        """Flow direction scaled by a pressure-based speed (slow near the goal).
+    def compute_navigation_field(self, velocity_field, grid, lo=0.5, hi=2.0):
+        """Flow direction scaled by a min-max-normalized speed in ``[lo, hi]``.
 
-        The raw fluid is fastest at the goal (flux converging into the sink); the
-        steady pressure ``self.pressure_`` is lowest at the goal and rises
-        outward, so scaling the unit direction by the normalized pressure gives a
-        field that is ~zero at the goal and speeds up with distance. Requires a
-        prior :meth:`compute_velocity_field` call. ``gamma`` shapes the profile.
+        Linearly maps the raw speed ``|u|`` over the moving voxels: the slowest
+        moving voxel gets ``lo``, the fastest ``hi``, the rest interpolated.
+        Direction is preserved.
         """
-        if getattr(self, "pressure_", None) is None:
-            raise RuntimeError("call compute_velocity_field() first")
         direction = self.compute_flow_field(velocity_field, grid)
-        fluid = grid == 0
-        speed = np.zeros(grid.shape, dtype=float)
-        pf = self.pressure_[fluid]
-        pf = pf - pf.min()
-        pmax = pf.max()
-        if pmax > 0:
-            speed[fluid] = (pf / pmax) ** gamma
-        return direction * speed[..., None]
+        v = np.asarray(velocity_field, dtype=float)
+        speed = np.sqrt((v * v).sum(axis=-1))
+        moving = (grid == 0) & (speed > 1e-9)
+        scaled = np.zeros(grid.shape, dtype=float)
+        if moving.any():
+            s = speed[moving]
+            smin, smax = float(s.min()), float(s.max())
+            if smax > smin:
+                scaled[moving] = lo + (s - smin) / (smax - smin) * (hi - lo)
+            else:
+                scaled[moving] = lo
+        return direction * scaled[..., None]
