@@ -253,19 +253,23 @@ class Trainer:
         return queries, q_targets
 
     def _compute_loss(self, grid_t, goal_t, target_t):
-        """Combined dense + query loss, sharing a single U-Net encode."""
+        """Combined loss plus its dense and query parts, from one shared encode."""
         queries, q_targets = self._sample_queries(target_t)
         pred, q_pred = self.model.forward_dense_query(grid_t, goal_t, queries)
-        loss = self.criterion(pred, target_t)
-        return loss + self.query_loss_weight * self.criterion(q_pred, q_targets)
+        dense_loss = self.criterion(pred, target_t)
+        query_loss = self.criterion(q_pred, q_targets)
+        loss = dense_loss + self.query_loss_weight * query_loss
+        return loss, dense_loss, query_loss
 
     # ------------------------------------------------------------------------
     # Evaluation
     # ------------------------------------------------------------------------
     def evaluate(self, loader):
-        """Compute average loss over a data loader (no gradient updates)."""
+        """Average (combined, dense, query) loss over a loader (no grad updates)."""
         self.model.eval()
         total_loss = 0.0
+        total_dense = 0.0
+        total_query = 0.0
 
         with torch.no_grad():
             for grid_t, goal_t, target_t in loader:
@@ -274,10 +278,15 @@ class Trainer:
                 target_t = target_t.to(self.device)
 
                 with torch.autocast(self.device.type, enabled=self.use_amp):
-                    loss = self._compute_loss(grid_t, goal_t, target_t)
+                    loss, dense_loss, query_loss = self._compute_loss(
+                        grid_t, goal_t, target_t
+                    )
                 total_loss += loss.item()
+                total_dense += dense_loss.item()
+                total_query += query_loss.item()
 
-        return total_loss / max(len(loader), 1)
+        n = max(len(loader), 1)
+        return total_loss / n, total_dense / n, total_query / n
 
     # ------------------------------------------------------------------------
     # Training
@@ -302,6 +311,8 @@ class Trainer:
             epoch_start = time.perf_counter()
             self.model.train()
             epoch_loss = 0.0
+            epoch_dense = 0.0
+            epoch_query = 0.0
 
             for grid_t, goal_t, target_t in train_loader:
                 grid_t = grid_t.to(self.device)
@@ -310,21 +321,32 @@ class Trainer:
 
                 self.optimizer.zero_grad()
                 with torch.autocast(self.device.type, enabled=self.use_amp):
-                    loss = self._compute_loss(grid_t, goal_t, target_t)
+                    loss, dense_loss, query_loss = self._compute_loss(
+                        grid_t, goal_t, target_t
+                    )
                 self.scaler.scale(loss).backward()
                 self.scaler.step(self.optimizer)
                 self.scaler.update()
 
                 epoch_loss += loss.item()
+                epoch_dense += dense_loss.item()
+                epoch_query += query_loss.item()
 
-            train_loss = epoch_loss / max(len(train_loader), 1)
-            val_loss = self.evaluate(val_loader)
+            n_train = max(len(train_loader), 1)
+            train_loss = epoch_loss / n_train
+            train_dense = epoch_dense / n_train
+            train_query = epoch_query / n_train
+            val_loss, val_dense, val_query = self.evaluate(val_loader)
             epoch_time = time.perf_counter() - epoch_start
             self.train_loss_history.append(train_loss)
             self.val_loss_history.append(val_loss)
 
             writer.add_scalar("Loss/train", train_loss, epoch)
             writer.add_scalar("Loss/val", val_loss, epoch)
+            writer.add_scalar("Loss/train_dense", train_dense, epoch)
+            writer.add_scalar("Loss/val_dense", val_dense, epoch)
+            writer.add_scalar("Loss/train_query", train_query, epoch)
+            writer.add_scalar("Loss/val_query", val_query, epoch)
             writer.add_scalar("Time/epoch_seconds", epoch_time, epoch)
 
             if val_loss < self.best_val_loss:
