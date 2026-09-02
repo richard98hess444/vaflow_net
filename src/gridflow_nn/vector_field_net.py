@@ -19,6 +19,36 @@ class ConvBlock(nn.Module):
         return self.block(x)
 
 
+class GlobalAttentionBlock(nn.Module):
+    """Residual global self-attention over a 2D feature map."""
+
+    def __init__(self, channels, num_heads=4, dropout=0.1):
+        super().__init__()
+        self.norm1 = nn.LayerNorm(channels)
+        self.attention = nn.MultiheadAttention(
+            channels, num_heads, dropout=dropout, batch_first=True
+        )
+        self.norm2 = nn.LayerNorm(channels)
+        self.mlp = nn.Sequential(
+            nn.Linear(channels, channels * 2),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(channels * 2, channels),
+            nn.Dropout(dropout),
+        )
+
+    def forward(self, x):
+        batch_size, channels, height, width = x.shape
+        tokens = x.flatten(2).transpose(1, 2)  # (B, H*W, C)
+        normalized = self.norm1(tokens)
+        attended, _ = self.attention(
+            normalized, normalized, normalized, need_weights=False
+        )
+        tokens = tokens + attended
+        tokens = tokens + self.mlp(self.norm2(tokens))
+        return tokens.transpose(1, 2).reshape(batch_size, channels, height, width)
+
+
 class QueryHead(nn.Module):
     def __init__(
         self, feat_channels, out_dim=2, hidden=128, fourier_bands=0, coord_dim=4
@@ -83,6 +113,9 @@ class VectorFieldNet(nn.Module):
         out_dim=2,
         query_hidden=128,
         fourier_bands=0,
+        attention_blocks=0,
+        attention_heads=4,
+        attention_dropout=0.1,
     ):
         super().__init__()
 
@@ -94,6 +127,17 @@ class VectorFieldNet(nn.Module):
         self.dec1 = ConvBlock(base_channels * 2 + base_channels, base_channels)
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
         self.head = nn.Conv2d(base_channels, out_dim, kernel_size=1)
+        bottleneck_channels = base_channels * 4
+        self.global_context = nn.Sequential(
+            *[
+                GlobalAttentionBlock(
+                    bottleneck_channels,
+                    num_heads=attention_heads,
+                    dropout=attention_dropout,
+                )
+                for _ in range(attention_blocks)
+            ]
+        )
 
         self.query_head = QueryHead(
             base_channels,
@@ -141,6 +185,7 @@ class VectorFieldNet(nn.Module):
         enc1 = self.enc1(features)
         enc2 = self.enc2(self.pool(enc1))
         bottleneck = self.bottleneck(self.pool(enc2))
+        bottleneck = self.global_context(bottleneck)
 
         up2 = F.interpolate(
             bottleneck,
@@ -159,10 +204,6 @@ class VectorFieldNet(nn.Module):
         dec1 = self.dec1(torch.cat([up1, enc1], dim=1))
         return dec1
 
-    def forward_dense(self, grid, goal):
-        dense = self.head(self._encode(grid, goal))
-        return dense.permute(0, 2, 3, 1)  # (B, 1, H, W) -> (B, H, W, 2)
-
     def encode(self, grid, goal):
         """Run the U-Net trunk once; reuse the returned feature for many queries."""
         return self._encode(grid, goal)
@@ -174,6 +215,10 @@ class VectorFieldNet(nn.Module):
     def forward_query(self, grid, goal, queries):
         """Predict the flow vector at arbitrary continuous query coordinates."""
         return self.query(self.encode(grid, goal), queries, goal)
+
+    def forward_dense(self, grid, goal):
+        dense = self.head(self._encode(grid, goal))
+        return dense.permute(0, 2, 3, 1)  # (B, 1, H, W) -> (B, H, W, 2)
 
     def forward_dense_query(self, grid, goal, queries):
         """Dense field and query-head prediction from a single shared encode."""

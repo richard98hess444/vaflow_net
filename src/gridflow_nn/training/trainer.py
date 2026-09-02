@@ -72,6 +72,9 @@ class Trainer:
         model_kwargs = {
             "base_channels": config.model_channels,
             "fourier_bands": self.query_fourier_bands,
+            "attention_blocks": getattr(config, "attention_blocks", 0),
+            "attention_heads": getattr(config, "attention_heads", 4),
+            "attention_dropout": getattr(config, "attention_dropout", 0.1),
         }
         self.model = self.model_cls(**model_kwargs).to(self.device)
 
@@ -398,6 +401,9 @@ class Trainer:
                 "grid_size": config.grid_size,
                 "dataset": self.dataset_key,
                 "query_fourier_bands": self.query_fourier_bands,
+                "attention_blocks": getattr(config, "attention_blocks", 0),
+                "attention_heads": getattr(config, "attention_heads", 4),
+                "attention_dropout": getattr(config, "attention_dropout", 0.1),
             },
             "best_val_loss": self.best_val_loss,
         }

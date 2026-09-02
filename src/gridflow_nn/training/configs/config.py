@@ -21,6 +21,9 @@ class Config:
         self.query_points = 256
         self.query_loss_weight = 1.0
         self.query_fourier_bands = 6
+        self.attention_blocks = 2
+        self.attention_heads = 4
+        self.attention_dropout = 0.1
 
         # 2D or 3D pipeline. Selects the dataset/model/predict fn.
         self.dataset = "3d"
