@@ -2,6 +2,7 @@ class Config:
     """Configuration for training the neural vector-field model."""
 
     def __init__(self):
+        self.notes = "v2"  # if needed, add a string to distinguish configs
         self.grid_size = 61
         self.obstacle_prob = 0.2
         self.threshold = 0.05
@@ -51,7 +52,7 @@ class Config:
         """
         key = self.dataset if dataset_key is None else dataset_key
         return (
-            f"flow_ds_{key}_{self.method}_n{self.grid_size}_p{self.obstacle_prob}"
+            f"vfn_{key}_{self.method}_n{self.grid_size}_p{self.obstacle_prob}"
             f"_s{self.num_samples}_seed{self.seed}"
-            f"_reach{int(self.check_reachable)}"
+            f"_{self.notes}"
         )
