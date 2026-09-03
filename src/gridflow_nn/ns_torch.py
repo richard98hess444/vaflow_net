@@ -12,10 +12,10 @@ at once on the GPU:
   * the diffusion+drag and pressure solves use a batched conjugate-gradient (the
     same iterative approach the 3D numpy solver already uses), the pressure solve
     warm-started across time steps;
-  * the discretization matches the numpy reference exactly (compact 5-/7-point
-    Neumann Laplacian, backward-difference divergence + forward-difference pressure
-    gradient, no-penetration wall seal), so the produced flow directions line up
-    with :meth:`VectorFieldGuidance.ns_method` (``clearance="drag"``).
+    * the discretization follows the numpy reference (compact 5-/7-point Neumann
+        Laplacian, backward-difference divergence + forward-difference pressure
+        gradient, no-penetration wall seal), then applies the same navigation-speed
+        mapping as :meth:`VectorFieldGuidance.ns_method` (``clearance="drag"``).
 
 The per-sample preprocessing that is awkward on the GPU -- picking the goal's
 connected fluid component and the distance-to-obstacle drag profile -- is done once
@@ -91,6 +91,17 @@ class _NSTorch:
                 _slice_zero(y, axis + 1, 0)
         return y
 
+    def _build_laplacian(self, fluid: torch.Tensor):
+        """Prepare the matrix-free Neumann Laplacian for a batch of grids.
+
+        The CPU solver assembles a sparse matrix. Building one matrix per sample
+        would prevent efficient GPU batching, so this returns the fluid-neighbor
+        masks and degree used by :meth:`_laplacian` to apply the same stencil.
+        """
+        neighbor_masks = [self._shift(fluid, offset) for offset in self._dirs]
+        degree = sum(neighbor_masks)
+        return neighbor_masks, degree
+
     def _laplacian(self, x, nf, deg, fluid):
         """Compact Neumann Laplacian ``sum_nbr(x_nbr - x)`` over fluid neighbors."""
         lx = -deg * x
@@ -150,21 +161,23 @@ class _NSTorch:
     # ------------------------------------------------------------------
     # Solve
     # ------------------------------------------------------------------
-    def solve(self, fluid, q, sigma):
-        """March to steady state; returns velocity ``(B, *spatial, ndim)``.
+    def compute_velocity_field(self, fluid, q, sigma):
+        """March Navier-Stokes to a batched steady velocity field.
 
         Args:
             fluid: (B, *spatial) float mask, 1 = free, 0 = solid.
             q: (B, *spatial) source/sink (zero-mean over each active component).
             sigma: (B, *spatial) Brinkman drag coefficient.
+
+        Returns:
+            Velocity tensor shaped ``(B, *spatial, ndim)`` on the solver device.
         """
         ndim = len(self._dirs[0])
         fluid = fluid.to(self.device, self.dtype)
         q = q.to(self.device, self.dtype)
         sigma = sigma.to(self.device, self.dtype)
 
-        nf = [self._shift(fluid, o) for o in self._dirs]  # fluid-neighbor masks
-        deg = sum(nf)
+        nf, deg = self._build_laplacian(fluid)
         nf_fwd = [self._shift(fluid, o) for o in self._fwd_dirs]
 
         a = self.viscosity * self.dt
@@ -208,14 +221,65 @@ class _NSTorch:
 
         return vel
 
-    def flow_direction(self, fluid, q, sigma):
-        """Unit-normalized steady flow direction ``(B, *spatial, ndim)`` (numpy)."""
-        vel = self.solve(fluid, q, sigma)
-        mag = torch.linalg.vector_norm(vel, dim=-1, keepdim=True)
-        unit = torch.where(
-            mag > 1e-9, vel / mag.clamp_min(1e-30), torch.zeros_like(vel)
+    def _compute_flow_field_tensor(self, velocity_field, fluid):
+        """Unit-normalize a batched velocity field without leaving the device."""
+        velocity = torch.as_tensor(
+            velocity_field, dtype=self.dtype, device=self.device
         )
-        return unit.cpu().numpy()
+        fluid = torch.as_tensor(fluid, device=self.device).bool()
+        magnitude = torch.linalg.vector_norm(velocity, dim=-1, keepdim=True)
+        moving = fluid.unsqueeze(-1) & (magnitude > 1e-9)
+        return torch.where(
+            moving,
+            velocity / magnitude.clamp_min(1e-30),
+            torch.zeros_like(velocity),
+        )
+
+    def compute_flow_field(self, velocity_field, fluid):
+        """Unit-normalize batched velocity fields, matching the CPU API stage."""
+        return self._compute_flow_field_tensor(velocity_field, fluid).cpu().numpy()
+
+    def compute_navigation_field(self, velocity_field, fluid, lo=0.5, hi=2.4):
+        """Scale flow directions by per-sample min-max speed in ``[lo, hi]``.
+
+        This is the batched GPU counterpart of the CPU Navier-Stokes method.
+        Min/max values are computed independently for each sample over moving
+        fluid cells; obstacles and stagnant cells remain zero.
+        """
+        velocity = torch.as_tensor(
+            velocity_field, dtype=self.dtype, device=self.device
+        )
+        fluid = torch.as_tensor(fluid, device=self.device).bool()
+        direction = self._compute_flow_field_tensor(velocity, fluid)
+        speed = torch.linalg.vector_norm(velocity, dim=-1)
+        moving = fluid & (speed > 1e-9)
+
+        flat_speed = speed.flatten(1)
+        flat_moving = moving.flatten(1)
+        has_moving = flat_moving.any(dim=1)
+        speed_min = flat_speed.masked_fill(~flat_moving, torch.inf).min(dim=1).values
+        speed_max = flat_speed.masked_fill(~flat_moving, -torch.inf).max(dim=1).values
+        speed_min = torch.where(has_moving, speed_min, torch.zeros_like(speed_min))
+        speed_max = torch.where(has_moving, speed_max, torch.zeros_like(speed_max))
+
+        view_shape = (speed.shape[0],) + (1,) * (speed.dim() - 1)
+        speed_min = speed_min.view(view_shape)
+        speed_max = speed_max.view(view_shape)
+        speed_range = speed_max - speed_min
+        normalized = (speed - speed_min) / speed_range.clamp_min(1e-30)
+        scaled = lo + normalized * (hi - lo)
+        scaled = torch.where(speed_range > 0.0, scaled, torch.full_like(scaled, lo))
+        scaled = torch.where(moving, scaled, torch.zeros_like(scaled))
+        return (direction * scaled.unsqueeze(-1)).cpu().numpy()
+
+    def solve(self, fluid, q, sigma):
+        """Compatibility alias for :meth:`compute_velocity_field`."""
+        return self.compute_velocity_field(fluid, q, sigma)
+
+    def flow_direction(self, fluid, q, sigma):
+        """Compatibility wrapper returning unit-normalized steady flow."""
+        velocity = self.compute_velocity_field(fluid, q, sigma)
+        return self.compute_flow_field(velocity, fluid)
 
 
 class NSTorch2D(_NSTorch):
@@ -379,7 +443,8 @@ def build_targets(
             ``drag_influence``, ``diff_iters``, ``proj_iters``, ``cg_tol``).
 
     Returns:
-        (K, n, ..., ndim) float32 array of unit flow directions, goal cell zeroed.
+        (K, n, ..., ndim) float32 navigation fields whose raw velocity magnitudes
+        are min-max mapped to [0.8, 2.4], with the goal cell zeroed.
     """
     solver_cls = NSTorch2D if ndim == 2 else NSTorch3D
     solver = solver_cls(device=device, **solver_kwargs)
@@ -403,7 +468,10 @@ def build_targets(
         fluid_t = torch.from_numpy(np.stack(fluids))
         q_t = torch.from_numpy(np.stack(qs))
         sigma_t = torch.from_numpy(np.stack(sigmas))
-        field = solver.flow_direction(fluid_t, q_t, sigma_t)
+        velocity = solver.compute_velocity_field(fluid_t, q_t, sigma_t)
+        field = solver.compute_navigation_field(
+            velocity, fluid_t, lo=0.8, hi=2.4
+        )
         
         if fill_stagnant:
             grids_batch = np.stack(gb).astype(np.float32)
