@@ -37,7 +37,7 @@ class Config:
         self.cache_chunks = 1
         self.chunk_size = 1000  # samples per on-disk chunk (3D generation)
         self.gpu_batch_size = 128  # method="ns": GPU sub-batch size (None = auto)
-        self.num_workers = 4
+        self.num_workers = 1
         self.pin_memory = True
 
     def dataset_subdir(self, dataset_key=None):

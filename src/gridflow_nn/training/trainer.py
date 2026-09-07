@@ -207,6 +207,7 @@ class Trainer:
                 sampler=ChunkAwareSampler(train_set, shuffle=True, seed=config.seed),
                 num_workers=num_workers,
                 pin_memory=pin_memory,
+                persistent_workers=num_workers > 0,
             )
             val_loader = DataLoader(
                 val_set,
@@ -214,6 +215,7 @@ class Trainer:
                 sampler=ChunkAwareSampler(val_set, shuffle=False, seed=config.seed),
                 num_workers=num_workers,
                 pin_memory=pin_memory,
+                persistent_workers=num_workers > 0,
             )
         else:
             train_loader = DataLoader(
@@ -222,6 +224,7 @@ class Trainer:
                 shuffle=True,
                 num_workers=num_workers,
                 pin_memory=pin_memory,
+                persistent_workers=num_workers > 0,
             )
             val_loader = DataLoader(
                 val_set,
@@ -229,6 +232,7 @@ class Trainer:
                 shuffle=False,
                 num_workers=num_workers,
                 pin_memory=pin_memory,
+                persistent_workers=num_workers > 0,
             )
         return train_loader, val_loader, val_set
 
@@ -276,9 +280,9 @@ class Trainer:
 
         with torch.no_grad():
             for grid_t, goal_t, target_t in loader:
-                grid_t = grid_t.to(self.device)
-                goal_t = goal_t.to(self.device)
-                target_t = target_t.to(self.device)
+                grid_t = grid_t.to(self.device, non_blocking=True)
+                goal_t = goal_t.to(self.device, non_blocking=True)
+                target_t = target_t.to(self.device, non_blocking=True)
 
                 with torch.autocast(self.device.type, enabled=self.use_amp):
                     loss, dense_loss, query_loss = self._compute_loss(
@@ -318,9 +322,9 @@ class Trainer:
             epoch_query = 0.0
 
             for grid_t, goal_t, target_t in train_loader:
-                grid_t = grid_t.to(self.device)
-                goal_t = goal_t.to(self.device)
-                target_t = target_t.to(self.device)
+                grid_t = grid_t.to(self.device, non_blocking=True)
+                goal_t = goal_t.to(self.device, non_blocking=True)
+                target_t = target_t.to(self.device, non_blocking=True)
 
                 self.optimizer.zero_grad()
                 with torch.autocast(self.device.type, enabled=self.use_amp):
