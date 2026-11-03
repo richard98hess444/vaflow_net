@@ -24,9 +24,9 @@ python scripts/run_flow.py
 
 ## Project Structure
 
-The code is split into three installable packages under `src/`, layered by
-dependency weight so a consumer only pulls in what it needs. Most of the stack
-comes in a **2D** and a parallel **3D** flavor (3D types/functions are suffixed
+The repository contains one installable distribution with three Python
+packages under `src/`, separated by dependency weight. Most of the stack comes
+in a **2D** and a parallel **3D** flavor (3D types/functions are suffixed
 `3D` / `_3d`; the 2D code is untouched):
 
 - `pyproject.toml`: Packaging and dependency configuration
@@ -96,6 +96,9 @@ Each run writes to `models/`:
 - the checkpoint `vfn_<timestamp>.pt` (best-val and periodic saves), and
 - tensorboard logs under `models/vfn_<timestamp>/tensorboard/`
   (view with `tensorboard --logdir models`).
+
+### Network Architecture
+![VFN network architecture](docs/images/vfn.jpg)
 
 ### Datasets storage
 
