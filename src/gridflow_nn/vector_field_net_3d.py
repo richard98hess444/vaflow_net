@@ -26,6 +26,38 @@ class ConvBlock3D(nn.Module):
         return self.block(x)
 
 
+class GlobalAttentionBlock3D(nn.Module):
+    """Residual global self-attention over a 3D feature volume."""
+
+    def __init__(self, channels, num_heads=4, dropout=0.1):
+        super().__init__()
+        self.norm1 = nn.LayerNorm(channels)
+        self.attention = nn.MultiheadAttention(
+            channels, num_heads, dropout=dropout, batch_first=True
+        )
+        self.norm2 = nn.LayerNorm(channels)
+        self.mlp = nn.Sequential(
+            nn.Linear(channels, channels * 2),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(channels * 2, channels),
+            nn.Dropout(dropout),
+        )
+
+    def forward(self, x):
+        batch_size, channels, depth, height, width = x.shape
+        tokens = x.flatten(2).transpose(1, 2)  # (B, D*H*W, C)
+        normalized = self.norm1(tokens)
+        attended, _ = self.attention(
+            normalized, normalized, normalized, need_weights=False
+        )
+        tokens = tokens + attended
+        tokens = tokens + self.mlp(self.norm2(tokens))
+        return tokens.transpose(1, 2).reshape(
+            batch_size, channels, depth, height, width
+        )
+
+
 class QueryHead3D(nn.Module):
     def __init__(
         self, feat_channels, out_dim=3, hidden=128, fourier_bands=0, coord_dim=6
@@ -95,6 +127,9 @@ class VectorFieldNet3D(nn.Module):
         out_dim=3,
         query_hidden=128,
         fourier_bands=0,
+        attention_blocks=0,
+        attention_heads=4,
+        attention_dropout=0.1,
     ):
         super().__init__()
 
@@ -109,6 +144,17 @@ class VectorFieldNet3D(nn.Module):
         self.dec1 = ConvBlock3D(base_channels * 2 + base_channels, base_channels)
         self.pool = nn.MaxPool3d(kernel_size=2, stride=2)
         self.head = nn.Conv3d(base_channels, out_dim, kernel_size=1)
+        bottleneck_channels = base_channels * 4
+        self.global_context = nn.Sequential(
+            *[
+                GlobalAttentionBlock3D(
+                    bottleneck_channels,
+                    num_heads=attention_heads,
+                    dropout=attention_dropout,
+                )
+                for _ in range(attention_blocks)
+            ]
+        )
 
         self.query_head = QueryHead3D(
             base_channels,
@@ -162,10 +208,6 @@ class VectorFieldNet3D(nn.Module):
             dim=1,
         )
 
-    def forward_dense(self, grid, goal):
-        dense = self.head(self._encode(grid, goal))  # (B, 3, D, H, W)
-        return dense.permute(0, 2, 3, 4, 1)  # (B, D, H, W, 3)
-
     def _encode(self, grid, goal):
         """Run the U-Net trunk and return the shared feature map (B, C, D, H, W)."""
         features = self._build_input_features(grid, goal)
@@ -173,6 +215,7 @@ class VectorFieldNet3D(nn.Module):
         enc1 = self.enc1(features)
         enc2 = self.enc2(self.pool(enc1))
         bottleneck = self.bottleneck(self.pool(enc2))
+        bottleneck = self.global_context(bottleneck)
 
         up2 = F.interpolate(
             bottleneck,
@@ -202,6 +245,10 @@ class VectorFieldNet3D(nn.Module):
     def forward_query(self, grid, goal, queries):
         """Predict the flow vector at arbitrary continuous query coordinates."""
         return self.query(self.encode(grid, goal), queries, goal)
+
+    def forward_dense(self, grid, goal):
+        dense = self.head(self._encode(grid, goal))  # (B, 3, D, H, W)
+        return dense.permute(0, 2, 3, 4, 1)  # (B, D, H, W, 3)
 
     def forward_dense_query(self, grid, goal, queries):
         """Dense field and query-head prediction from a single shared encode."""

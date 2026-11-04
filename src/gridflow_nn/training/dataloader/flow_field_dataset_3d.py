@@ -2,6 +2,7 @@ import bisect
 import json
 import os
 from pathlib import Path
+import time
 
 import torch
 from torch.utils.data import Dataset, Sampler
@@ -27,6 +28,7 @@ class FlowFieldDataset3D(Dataset):
         save_dir=None,
         chunk_size=1000,
         resume=True,
+        gpu_batch_size=None,
     ):
         """Generate the dataset, optionally checkpointing to disk in chunks.
 
@@ -44,14 +46,19 @@ class FlowFieldDataset3D(Dataset):
             resume: when True, reuse any chunks/progress already in ``save_dir``.
         """
         self.grid_size = grid_size
+        self.gpu_batch_size = gpu_batch_size
         self.samples = []
 
         bfs = BreadthFirstSearch3D()  # grid generation
         guide = VectorFieldGuidance3D(  # shared ground-truth construction
-            gain=0.03,
-            influence=5,
-            resolution=0.1,
-            falloff_power=0.67,
+            apf_gain=0.03,
+            apf_influence=5,
+            apf_resolution=0.1,
+            apf_falloff_power=0.67,
+            drag_gain=3.7,
+            drag_influence=3.0,
+            ns_force_boundary=2.5,
+            fill_stagnant=True,
         )
         rng = np.random.default_rng(seed)
         center = (grid_size // 2, grid_size // 2, grid_size // 2)
@@ -83,9 +90,8 @@ class FlowFieldDataset3D(Dataset):
 
         # Peak memory stays bounded by ``chunk_size`` samples.
         total = saved_count
-        display_freq = (
-            10 ** (int(np.log10(num_samples)) - 1) if num_samples >= 10 else 1
-        )
+        display_freq = 100
+        start_time = time.time()
         while total < num_samples and attempt < max_attempts:
             grid = bfs.generate_sparse_grid(
                 n=grid_size,
@@ -105,20 +111,29 @@ class FlowFieldDataset3D(Dataset):
 
             if method == "bfs":
                 target = guide.bfs_method(grid, goal)
+            elif method == "ns":
+                target = None  # filled in a GPU batch at chunk flush
             else:
                 target = guide.eik_method(grid, goal)
 
-            target = np.asarray(target, dtype=np.float32)
+            if target is not None:
+                target = np.asarray(target, dtype=np.float32)
             self.samples.append((grid, goal, target))
             total += 1
 
             if save_dir is not None and len(self.samples) >= chunk_size:
+                if method == "ns":
+                    self._fill_ns_targets(ndim=3)
                 self._save_chunk(save_dir, saved_count, attempt, rng, meta)
                 saved_count += len(self.samples)
                 self.samples = []  # release memory
+                print(f"Saved chunk in {time.time() - start_time:.2f}s")
 
             if total % display_freq == 0:
                 print(f"Collected {total} / {num_samples} samples...")
+
+        if save_dir is None and method == "ns":
+            self._fill_ns_targets(ndim=3)
 
         if save_dir is not None and self.samples:
             print(
@@ -266,6 +281,23 @@ class FlowFieldDataset3D(Dataset):
             k = int(rng.integers(0, n))
             if grid[i, j, k] == 0:
                 return (i, j, k)
+
+    def _fill_ns_targets(self, ndim):
+        """Fill deferred ns (drag) targets for buffered samples in GPU batches."""
+        from gridflow_nn.ns_torch import build_targets
+
+        pending = [i for i, s in enumerate(self.samples) if s[2] is None]
+        if not pending:
+            return
+        grids = [self.samples[i][0] for i in pending]
+        goals = [self.samples[i][1] for i in pending]
+        batch = self.gpu_batch_size or (256 if ndim == 2 else 32)
+        targets = build_targets(
+            grids, goals, ndim=ndim, batch_size=batch, progress=True
+        )
+        for j, i in enumerate(pending):
+            g, go, _ = self.samples[i]
+            self.samples[i] = (g, go, np.asarray(targets[j], dtype=np.float32))
 
     def __len__(self):
         return len(self.samples)

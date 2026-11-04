@@ -37,7 +37,10 @@ def load_model_3d(ckpt_path, device=None):
 
     model = VectorFieldNet3D(
         base_channels=config.get("model_channels", 32),
-        fourier_bands=config.get("query_fourier_bands", 0),
+        fourier_bands=config.get("query_fourier_bands", 6),
+        attention_blocks=config.get("attention_blocks", 2),
+        attention_heads=config.get("attention_heads", 4),
+        attention_dropout=config.get("attention_dropout", 0.1),
     ).to(device)
     model.load_state_dict(ckpt["model_state_dict"], strict=False)
     model.eval()

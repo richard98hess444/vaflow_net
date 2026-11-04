@@ -24,9 +24,9 @@ python scripts/run_flow.py
 
 ## Project Structure
 
-The code is split into three installable packages under `src/`, layered by
-dependency weight so a consumer only pulls in what it needs. Most of the stack
-comes in a **2D** and a parallel **3D** flavor (3D types/functions are suffixed
+The repository contains one installable distribution with three Python
+packages under `src/`, separated by dependency weight. Most of the stack comes
+in a **2D** and a parallel **3D** flavor (3D types/functions are suffixed
 `3D` / `_3d`; the 2D code is untouched):
 
 - `pyproject.toml`: Packaging and dependency configuration
@@ -97,12 +97,17 @@ Each run writes to `models/`:
 - tensorboard logs under `models/vfn_<timestamp>/tensorboard/`
   (view with `tensorboard --logdir models`).
 
-### Datasets storage
+### Network Architecture
+![VFN network architecture](docs/images/vfn.jpg)
 
+### Datasets Storage and Caching
+
+**TLDR**: Just run `python scripts/run_trainer.py` for 3D model training. The script will check if the dataset with the coresponging config exist. If not, the script will generate the dataset and store it one the disk at the beginning.
+
+#### (1) Storage
 Every dataset is stored in its **own per-config folder** whose name encodes the
 dataset-defining values (`grid_size`, `obstacle_prob`, `num_samples`, `seed`,
-`check_reachable`) via `Config.dataset_subdir()`, so different configs never
-collide and the trainer always looks in the exact folder the generator wrote to.
+`check_reachable`) via `Config.dataset_subdir()`.
 
 - 2D datasets live under `dataset_dir_2d` (`cache/dataset_2d`).
 - 3D datasets live under `dataset_dir_3d` (`cache/dataset_3d`).
@@ -124,22 +129,16 @@ memory-safe chunks so a crash doesn't lose everything and peak RAM stays bounded
 by one chunk:
 
 ```bash
-python scripts/generate_dataset_3d.py     # writes {start}-{end}.npz chunks + progress.json
+python scripts/generate_dataset_3d.py
 ```
 
 `generate_dataset_3d.py` reads the shared training `Config` for every
 dataset-defining value and only keeps generation-only knobs (`method`,
 `chunk_size`, `resume`) in its own `GeneratorCfg`, so the generator and trainer
 can't drift apart. Just run `run_trainer.py` afterward with the **same**
-`Config`; it finds and streams the chunks automatically. To generate overnight,
-detach it from the terminal:
+`Config`; it finds and streams the chunks automatically.
 
-```bash
-nohup python scripts/generate_dataset_3d.py > cache/dataset_3d/gen.log 2>&1 &
-```
-
-
-### Caching and small sample counts
+#### (2) Caching and small sample counts
 
 **Small datasets (`num_samples < chunk_size`, e.g. 200 or fewer):** you do
 **not** need `generate_dataset_3d.py`. That script only writes *full* chunks and
@@ -169,19 +168,3 @@ python scripts/run_sim.py --model-path models/your_checkpoint.pt --mode teleo  #
 python scripts/run_success_rate.py -h  # shows all the arguments
 python scripts/run_success_rate.py --model-path models/your_checkpoint.pt
 ```
-
-### Known caveat: diagonal corner behavior
-
-If the predicted flow appears to pass diagonally around a blocked side cell,
-that may come from the target-generation rules, not only from the neural model.
-In the current `WaterFlow` implementation, diagonal motion is blocked only when
-both adjacent orthogonal cells are blocked. That means the target field can
-still permit some diagonal corner-sliding cases, and the model may learn to
-imitate them.
-
-## Important Notes
-
-- The core library (`src/gridflow`) never imports `torch`; only `gridflow_nn` and `gridflow_sim` do.
-- Importing `gridflow_nn` for inference does not pull in matplotlib or the training code.
-- Always activate the virtual environment before running commands.
-- If you use system Python instead of the venv Python, imports may fail or dependencies may not match.

@@ -1,76 +1,94 @@
-"""Ground-truth guidance vector field shared across the whole workspace.
+"""2D ground-truth guidance vector field.
 
-This is the single source of truth for how a target (drow, dcol) guidance field
-is built from a grid and a goal. It is reused by:
+The 2D counterpart of :mod:`gridflow.algorithms_3d.guidance`. It is the single
+source of truth for how a target ``(drow, dcol)`` guidance field is built from a
+grid and a goal, bundling the 2D solvers and the attraction/repulsion
+configuration together.
 
-  * the training dataset (``gridflow_nn/training/dataloader/flow_field_dataset.py``),
-  * the live simulator (``gridflow_sim/simulator.py``), and
-  * the exploratory notebooks (``notebook/*.ipynb``),
+:class:`VectorFieldGuidance` exposes three interchangeable strategies:
 
-so every part of the project trains against and evaluates the exact same target.
-
-:class:`VectorFieldGuidance` bundles the solver instances and the
-attraction/repulsion configuration together and exposes two interchangeable
-strategies for producing that target:
-
-  * :meth:`VectorFieldGuidance.eik_method` -- the Eikonal shortest-path gradient
-    (attraction toward the goal) plus the SDF artificial-potential-field
-    repulsion (push away from obstacles), and
-  * :meth:`VectorFieldGuidance.bfs_method` -- the original WaterFlow pipeline.
+  * :meth:`eik_method` -- the Eikonal shortest-path gradient (attraction toward
+    the goal) plus the SDF artificial-potential-field repulsion (push away from
+    obstacles),
+  * :meth:`ns_method` -- the incompressible Navier-Stokes flow direction, and
+  * :meth:`bfs_method` -- the original WaterFlow pipeline.
 
 Construct one instance and reuse it; the held solvers and the ``influence`` /
-``gain`` repulsion parameters are then shared across every call.
+``gain`` repulsion parameters are then shared across every guidance call.
 """
 
 import numpy as np
 
 from .flow import WaterFlow
 from .eikonal import Eikonal
+from .navier_stokes import NavierStokes
 from .sdf import SignedDistanceField
+from ..utils.grid import fill_stagnant_flow
 
-# Default artificial-potential-field repulsion parameters. Kept here so every
-# caller shares the same balance between attraction and repulsion.
-DEFAULT_INFLUENCE = 3.0
-DEFAULT_GAIN = 1.0
-DEFAULT_RESOLUTION = 0.1
-DEFAULT_FALLOFF_POWER = 0.67
+DEFAULT_APF_GAIN = 0.03
+DEFAULT_APF_INFLUENCE = 5.0
+DEFAULT_APF_RESOLUTION = 0.1
+DEFAULT_APF_FALLOFF_POWER = 0.67
+DEFAULT_DRAG_GAIN = 5.0
+DEFAULT_DRAG_INFLUENCE = 3.0
+DEFAULT_NS_FORCE_BOUNDARY = 3.0
 
 
 class VectorFieldGuidance:
     """Build ground-truth guidance fields, holding the solvers and config.
-
-    The instance owns one :class:`WaterFlow`, :class:`Eikonal` and
-    :class:`SignedDistanceField` solver plus the repulsion parameters, so the
-    same objects and settings are reused across every guidance call (e.g. every
-    sample in a dataset loop) instead of being threaded through as arguments.
-
     Args:
-        influence: SDF repulsion influence radius ``d0`` in cells.
-        gain: SDF repulsion strength.
+        apf_influence: SDF repulsion influence radius ``d0`` in cells.
+        apf_gain: SDF repulsion strength.
+        apf_resolution: SDF repulsion cell size.
+        apf_falloff_power: SDF repulsion falloff power.
+        drag_gain: Drag force gain.
+        drag_influence: Drag force influence radius.
+        ns_force_boundary: Navier-Stokes force boundary.
     """
 
     def __init__(
         self,
-        influence: float = DEFAULT_INFLUENCE,
-        gain: float = DEFAULT_GAIN,
-        resolution: float = DEFAULT_RESOLUTION,
-        falloff_power: float = DEFAULT_FALLOFF_POWER,
+        apf_gain: float = DEFAULT_APF_GAIN,
+        apf_influence: float = DEFAULT_APF_INFLUENCE,
+        apf_resolution: float = DEFAULT_APF_RESOLUTION,
+        apf_falloff_power: float = DEFAULT_APF_FALLOFF_POWER,
+        drag_gain: float = DEFAULT_DRAG_GAIN,
+        drag_influence: float = DEFAULT_DRAG_INFLUENCE,
+        ns_force_boundary: float = DEFAULT_NS_FORCE_BOUNDARY,
+        fill_stagnant: bool = True,
     ):
         self.wf = WaterFlow()
         self.eik = Eikonal()
+        self.ns = NavierStokes(viscosity=0.9, dt=0.1, source_rate=0.05, num_steps=100)
         self.sdf = SignedDistanceField()
-        self.influence = influence
-        self.gain = gain
-        self.resolution = resolution
-        self.falloff_power = falloff_power
+        self.apf_gain = apf_gain
+        self.apf_influence = apf_influence
+        self.apf_resolution = apf_resolution
+        self.apf_falloff_power = apf_falloff_power
+        self.drag_gain = drag_gain
+        self.drag_influence = drag_influence
+        self.ns_force_boundary = ns_force_boundary
+        self.fill_stagnant = fill_stagnant
+
+    def _repulsion(self, grid: np.ndarray) -> np.ndarray:
+        """SDF artificial-potential-field repulsion using this instance's config."""
+        sdf_map = self.sdf.compute_sdf_map(grid)
+        return self.sdf.compute_repulsive_force_map(
+            grid,
+            sdf=sdf_map,
+            influence=self.apf_influence,
+            gain=self.apf_gain,
+            cell_size=self.apf_resolution,
+            falloff_power=self.apf_falloff_power,
+        )
 
     def eik_method(self, grid: np.ndarray, goal: tuple[int, int]) -> np.ndarray:
         """Build the guidance field from the Eikonal gradient plus SDF repulsion.
 
         Combines the Eikonal shortest-path gradient (attraction toward ``goal``)
         with the SDF repulsion (push away from obstacles) and zeroes the goal
-        cell. The ``influence`` / ``gain`` repulsion parameters come from this
-        instance.
+        cell. The ``apf_influence`` / ``apf_gain`` repulsion parameters come from
+        this instance.
 
         Args:
             grid: (n, n) numpy array where 0=free, 1=obstacle.
@@ -81,18 +99,74 @@ class VectorFieldGuidance:
         """
         arrival_time_map = self.eik.compute_arrival_time_map(grid, source=goal)
         gradient_map = self.eik.compute_gradient_map(arrival_time_map, grid)
-
-        sdf_map = self.sdf.compute_sdf_map(grid)
-        repulsive_force_map = self.sdf.compute_repulsive_force_map(
-            grid,
-            sdf=sdf_map,
-            influence=self.influence,
-            gain=self.gain,
-            cell_size=self.resolution,
-            falloff_power=self.falloff_power,
-        )
+        repulsive_force_map = self._repulsion(grid)
 
         guidance = gradient_map + repulsive_force_map
+        guidance[goal[0], goal[1]] = np.array([0.0, 0.0])
+        return guidance.astype(np.float32)
+
+    def _ns_flow(
+        self,
+        grid: np.ndarray,
+        goal: tuple[int, int],
+        force_field: np.ndarray = None,
+        drag: bool = False,
+    ) -> np.ndarray:
+        """Solve NS and return the navigation field (direction x speed; force/drag)."""
+        if drag:
+            self.ns.drag_gain = self.drag_gain
+            self.ns.drag_influence = self.drag_influence
+        try:
+            velocity = self.ns.compute_velocity_field(grid, goal, force_field)
+            return self.ns.compute_navigation_field(velocity, grid, lo=0.8, hi=2.4)
+        finally:
+            self.ns.drag_gain = 0.0
+
+    def ns_method(
+        self, grid: np.ndarray, goal: tuple[int, int], clearance: str = "apf"
+    ) -> np.ndarray:
+        """Build the guidance field from the incompressible Navier-Stokes flow.
+
+        2D counterpart of :meth:`gridflow.algorithms.guidance.VectorFieldGuidance.ns_method`.
+        ``clearance`` selects how obstacle clearance is added:
+
+          * ``"apf"``  -- SDF repulsion added *after* the solve (original).
+          * ``"force"`` -- the repulsion injected as a body force *before* the
+            projection (smooth, divergence-free); ``ns_force_boundary`` blends
+            the reversed boundary shell back to the plain flow.
+          * ``"drag"`` -- Brinkman porous drag near walls, diverting the flow to
+            keep clearance from inside the solve (single solve).
+          * ``"none"`` -- raw flow; clearance only from wall no-penetration.
+
+        Args:
+            grid: (n, n) numpy array where 0=free, 1=obstacle.
+            goal: (row, col) target cell the field should guide toward.
+            clearance: Clearance strategy, one of the values above.
+
+        Returns:
+            guidance: (n, n, 2) float32 array of (drow, dcol) guidance vectors.
+        """
+        if clearance == "none":
+            guidance = self._ns_flow(grid, goal)
+        elif clearance == "drag":
+            guidance = self._ns_flow(grid, goal, drag=True)
+        elif clearance == "apf":
+            guidance = self._ns_flow(grid, goal) + self._repulsion(grid)
+        elif clearance == "force":
+            guidance = self._ns_flow(grid, goal, force_field=self._repulsion(grid))
+            if self.ns_force_boundary > 0.0:
+                plain = self._ns_flow(grid, goal)
+                w = self.ns.boundary_taper(grid.shape, self.ns_force_boundary)
+                guidance = w[..., None] * guidance + (1.0 - w[..., None]) * plain
+        else:
+            raise ValueError(
+                f"Unknown clearance {clearance!r}; expected "
+                "'none', 'apf', 'force' or 'drag'."
+            )
+
+        guidance = np.array(guidance)
+        if self.fill_stagnant:
+            guidance = fill_stagnant_flow(guidance, grid)
         guidance[goal[0], goal[1]] = np.array([0.0, 0.0])
         return guidance.astype(np.float32)
 

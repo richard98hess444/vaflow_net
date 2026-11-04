@@ -7,6 +7,7 @@ classes are left untouched; use these ``*3D`` classes for 3D work.
 from .bfs import DIRS_3D, BreadthFirstSearch3D
 from .flow import WaterFlow3D
 from .eikonal import Eikonal3D
+from .navier_stokes import NavierStokes3D
 from .sdf import SignedDistanceField3D
 from .guidance import VectorFieldGuidance3D
 from .astar import AStar3D
@@ -16,6 +17,7 @@ __all__ = [
     "BreadthFirstSearch3D",
     "WaterFlow3D",
     "Eikonal3D",
+    "NavierStokes3D",
     "SignedDistanceField3D",
     "VectorFieldGuidance3D",
     "AStar3D",

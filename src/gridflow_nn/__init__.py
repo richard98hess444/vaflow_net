@@ -6,8 +6,13 @@ and the simulation, without any ``sys.path`` hacks. It is kept separate from
 the ``gridflow`` core package, which stays torch-free (numpy + matplotlib only).
 """
 
-from .vector_field_net import VectorFieldNet, ConvBlock, QueryHead
-from .vector_field_net_3d import VectorFieldNet3D, ConvBlock3D, QueryHead3D
+from .vector_field_net import VectorFieldNet, ConvBlock, GlobalAttentionBlock, QueryHead
+from .vector_field_net_3d import (
+    VectorFieldNet3D,
+    ConvBlock3D,
+    GlobalAttentionBlock3D,
+    QueryHead3D,
+)
 from .inference import load_model, predict_full_field, predict_query_field, predict_path
 from .inference_3d import (
     load_model_3d,
@@ -16,13 +21,16 @@ from .inference_3d import (
     predict_path_3d,
 )
 from .integration import eul_integrate, rk4_integrate, integrate_path
+from .ns_torch import NSTorch2D, NSTorch3D, build_targets, generate_flow_dataset
 
 __all__ = [
     "VectorFieldNet",
     "ConvBlock",
+    "GlobalAttentionBlock",
     "QueryHead",
     "VectorFieldNet3D",
     "ConvBlock3D",
+    "GlobalAttentionBlock3D",
     "QueryHead3D",
     "load_model",
     "predict_full_field",
@@ -35,4 +43,8 @@ __all__ = [
     "eul_integrate",
     "rk4_integrate",
     "integrate_path",
+    "NSTorch2D",
+    "NSTorch3D",
+    "build_targets",
+    "generate_flow_dataset",
 ]

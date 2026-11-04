@@ -20,16 +20,22 @@ class FlowFieldDataset(Dataset):
         check_reachable=True,
         max_attempts=None,
         method="eik",
+        gpu_batch_size=None,
     ):
         self.grid_size = grid_size
+        self.gpu_batch_size = gpu_batch_size
         self.samples = []
 
         bfs = BreadthFirstSearch()  # used to generate the grids
         guide = VectorFieldGuidance(  # shared ground-truth construction
-            gain=0.03,
-            influence=5,
-            resolution=0.1,
-            falloff_power=0.67,
+            apf_gain=0.03,
+            apf_influence=5,
+            apf_resolution=0.1,
+            apf_falloff_power=0.67,
+            drag_gain=3.7,
+            drag_influence=3.0,
+            ns_force_boundary=2.5,
+            fill_stagnant=True,
         )
         astar = AStar()  # reachability check (center -> goal)
         rng = np.random.default_rng(seed)
@@ -60,12 +66,17 @@ class FlowFieldDataset(Dataset):
 
             if method == "bfs":
                 target = guide.bfs_method(grid, goal)
+            elif method == "ns":
+                target = None  # filled in one GPU batch after sampling
             else:
                 target = guide.eik_method(grid, goal)
             self.samples.append((grid, goal, target))
 
             if len(self.samples) % 1000 == 0:
                 print(f"Collected {len(self.samples)} / {num_samples} samples...")
+
+        if method == "ns":
+            self._fill_ns_targets(ndim=2)
 
         if len(self.samples) < num_samples:
             print(
@@ -97,6 +108,23 @@ class FlowFieldDataset(Dataset):
             c = int(rng.integers(0, n))
             if grid[r, c] == 0:
                 return (r, c)
+
+    def _fill_ns_targets(self, ndim):
+        """Fill deferred ns (drag) targets for buffered samples in GPU batches."""
+        from gridflow_nn.ns_torch import build_targets
+
+        pending = [i for i, s in enumerate(self.samples) if s[2] is None]
+        if not pending:
+            return
+        grids = [self.samples[i][0] for i in pending]
+        goals = [self.samples[i][1] for i in pending]
+        batch = self.gpu_batch_size or (256 if ndim == 2 else 32)
+        targets = build_targets(
+            grids, goals, ndim=ndim, batch_size=batch, progress=True
+        )
+        for j, i in enumerate(pending):
+            g, go, _ = self.samples[i]
+            self.samples[i] = (g, go, np.asarray(targets[j], dtype=np.float32))
 
     def __len__(self):
         return len(self.samples)

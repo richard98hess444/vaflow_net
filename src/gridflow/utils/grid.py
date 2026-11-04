@@ -1,6 +1,7 @@
 import functools
 
 import numpy as np
+from scipy.ndimage import convolve
 
 
 @functools.lru_cache(maxsize=16)
@@ -125,3 +126,67 @@ def solidify_voxels(grid, depth=6, samples_per_cell=2, center=None, obstacle_val
 
     filled[hit] = obstacle_val
     return filled
+
+
+def fill_stagnant_flow(field, grid, iters=4, normalize=False):
+    """Fill zero-flow free cells with the mean of their moving neighbors' vectors.
+
+    Incompressible flow has genuine stagnation points -- most visibly the domain
+    corners (on two walls in 2D, three in 3D), where no-penetration zeroes every
+    velocity component -- leaving holes that are discontinuous with the field
+    around them. For a navigation *target* those holes are undesirable. This
+    inpaints them: each pass sets every zero free cell that has at least one
+    moving neighbor to the average of its moving neighbors' vectors, repeated
+    ``iters`` times to reach into 2-3 cell pockets.
+
+    Obstacles and fully isolated pockets (no moving neighbor at all, e.g. an
+    unreachable region) are left at zero. Works for 2D ``(n, n, 2)`` and 3D
+    ``(n, n, n, 3)`` fields.
+
+    Args:
+        field: (..., D) flow/direction field (last axis is the vector).
+        grid: (...) array where 0=free, non-zero=obstacle (matches ``field``'s
+            spatial shape).
+        iters: Number of propagation passes.
+        normalize: If True, renormalize the filled cells to unit length (use for
+            a unit-direction field); if False, keep the averaged magnitude (use
+            for a magnitude-carrying field).
+
+    Returns:
+        A new field with the reachable stagnation holes filled.
+    """
+    field = np.array(field, dtype=float)
+    ndim = field.shape[-1]
+    free = grid == 0
+    kernel = np.ones((3,) * ndim, dtype=float)
+    kernel[(1,) * ndim] = 0.0  # 3^D neighborhood, center excluded
+
+    for _ in range(iters):
+        mag = np.linalg.norm(field, axis=-1)
+        moving = free & (mag > 1e-9)
+        stagnant = free & ~moving
+        den = convolve(moving.astype(float), kernel, mode="constant", cval=0.0)
+        fillable = stagnant & (den > 0)
+        if not fillable.any():
+            break
+
+        moving_f = moving.astype(float)
+        out = field.copy()
+        for c in range(ndim):
+            contrib = field[..., c] * moving_f  # raw neighbor vectors, 0 elsewhere
+            avg_c = convolve(contrib, kernel, mode="constant", cval=0.0) / np.where(
+                den > 0, den, 1.0
+            )
+            out[..., c] = np.where(fillable, avg_c, field[..., c])
+
+        if normalize:
+            nm = np.linalg.norm(out, axis=-1)
+            renorm = fillable & (nm > 1e-9)
+            for c in range(ndim):
+                out[..., c] = np.where(
+                    renorm, out[..., c] / np.where(nm > 1e-9, nm, 1.0), out[..., c]
+                )
+        field = out
+
+    return field
+
