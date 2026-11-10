@@ -1,13 +1,20 @@
 [project]
 name = "gridflow"
 version = "0.4.0"
-description = "Grid Flow Simulation"
+description = "Vacancy Flow Network for Mobile Robot Navigation"
 requires-python = ">=3.11"
 dependencies = [
     "numpy",
     "matplotlib",
     "scipy",
     "tensorboard",
+]
+
+[project.optional-dependencies]
+gpu = [
+    "torch==2.7.0",
+    "torchaudio==2.7.0",
+    "torchvision==0.22.0",
 ]
 
 [build-system]
@@ -17,3 +24,13 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["gridflow*"]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+torchvision = { index = "pytorch-cu128" }
+torchaudio = { index = "pytorch-cu128" }

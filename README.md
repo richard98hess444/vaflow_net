@@ -5,21 +5,11 @@
 From your workspace:
 
 ```bash
-# 1. Create virtual environment (one-time)
-uv venv env_vfn --python 3.11
+# 1. Sync the project and install the GPU dependencies
+uv sync --python 3.11 --extra gpu
 
-# 2. Activate virtual environment
-source env_vfn/bin/activate
-
-# 3. Install the library in editable mode (from repo root)
-uv pip install -e .
-
-# 4. Install torch (we have tested on this version)
-uv pip install torch==2.7.0 torchvision==0.22.0 torchaudio==2.7.0 --index-url https://download.pytorch.org/whl/cu128
-
-
-# 5. Run a demo
-python scripts/run_flow.py
+# 2. Run a demo inside the managed environment
+uv run python scripts/run_flow.py
 ```
 
 ## Project Structure
@@ -50,8 +40,8 @@ in a **2D** and a parallel **3D** flavor (3D types/functions are suffixed
 
 - Python `>=3.11`
 - Core (`gridflow`): `numpy`, `matplotlib`, `scipy`, `tensorboard`
-- Model / training / simulation (`gridflow_nn`, `gridflow_sim`): `torch`
-  (find the version that matches your device)
+- Model / training / simulation (`gridflow_nn`, `gridflow_sim`): the pinned
+  PyTorch 2.7.0 CUDA 12.8 stack installed by the `gpu` extra
 
 ## Running Scripts
 
