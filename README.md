@@ -1,4 +1,4 @@
-# Vacancy Flow Navigation
+# Vacancy Flow Network (VaFlow-Net) for 2D/3D Mobile Robot Navigation
 
 ## Quick Start
 
