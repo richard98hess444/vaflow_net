@@ -5,11 +5,17 @@
 From your workspace:
 
 ```bash
+# 0. Optional: create the venv with a given name
+export UV_PROJECT_ENVIRONMENT=env_vfn
+
 # 1. Sync the project and install the GPU dependencies
 uv sync --python 3.11 --extra gpu
 
 # 2. Run a demo inside the managed environment
 uv run python scripts/run_flow.py
+# or
+source env_vfn/bin/activate
+python scripts/run_flow.py
 ```
 
 ## Project Structure
